@@ -1,5 +1,5 @@
 const nodemailer = require('nodemailer');
-const config = require('../config.js'); 
+const config = require('./config/config'); 
 
 // Renamed your original function to be generic
 const sendGenericEmail = async (email, subject, text) => {
