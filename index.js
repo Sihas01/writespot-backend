@@ -1,10 +1,14 @@
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
+require('dotenv').config();
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+app.use('/api/auth', require('./src/routes/auth'));
+
 
 mongoose.connect("mongodb://localhost:27017/eBook")
   .then(() => console.log("DB Connected"))
