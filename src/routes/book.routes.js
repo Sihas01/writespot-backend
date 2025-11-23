@@ -15,5 +15,7 @@ router.get("/", book.getAllBooks);
 
 router.get("/my", auth, role(["author"]), book.getMyBooks);
 router.get('/mybooks', auth, book.getAuthorBooks);
+router.put("/:id", auth, book.updateBook);
+router.delete("/:id", auth, book.deleteBook);
 
 module.exports = router;
