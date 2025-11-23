@@ -7,7 +7,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-app.use('/api/auth', require('./src/routes/auth'));
+app.use('/api/auth', require('./src/routes/auth.routes'));
 
 
 mongoose.connect("mongodb://localhost:27017/eBook")

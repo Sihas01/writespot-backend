@@ -1,12 +1,12 @@
 const router = require("express").Router();
-const fakeAuth = require("../middleware/fakeAuth");
-const fakeRole = require("../middleware/fakeRole");
+const auth = require("../middleware/authMiddleware");
+const role = require("../middleware/roleMiddleware");
 const book = require("../controllers/book.controller");
 
 router.post(
   "/",
-  fakeAuth,
-  fakeRole("author", "admin"),
+  auth,
+  role(["author", "admin"]),
   book.addBook
 );
 
