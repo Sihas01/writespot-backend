@@ -13,4 +13,7 @@ router.post(
 // Anyone can read books
 router.get("/", book.getAllBooks);
 
+router.get("/my", auth, role(["author"]), book.getMyBooks);
+router.get('/mybooks', auth, book.getAuthorBooks);
+
 module.exports = router;
