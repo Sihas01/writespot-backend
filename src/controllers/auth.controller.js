@@ -99,7 +99,7 @@ module.exports = {
         return res.status(400).json({ msg: "Please verify your email first" });
       }
 
-      const expectedRole = role === "Reader" ? "student" : "teacher";
+      const expectedRole = role === "Reader" ? "reader" : "author";
       if (user.role !== expectedRole) {
         return res.status(400).json({ msg: "Invalid role selected" });
       }

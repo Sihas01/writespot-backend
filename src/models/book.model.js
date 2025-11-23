@@ -17,7 +17,9 @@ const bookSchema = new mongoose.Schema({
     fileFormat: String,
     coverImagePath: String,
     manuscriptPath: String,
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     createdAt: { type: Date, default: Date.now },
+    drmEnabled: { type: Boolean, default: false }
 });
 
 module.exports = mongoose.model("Book", bookSchema);
