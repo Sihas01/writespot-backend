@@ -21,8 +21,8 @@ const UserSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ['student', 'teacher'],     // your backend roles
-      default: 'student',
+      enum: ['reader', 'author'],     
+      default: 'reader',
       required: true,
     },
     isVerified: {
