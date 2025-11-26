@@ -8,6 +8,11 @@ const role = require("../middleware/roleMiddleware");
 router.post("/register", authController.register);
 router.post("/login", authController.login);
 router.post("/verify-otp", authController.verifyOtp);
+router.post("/resend-otp", authController.resendOtp);
+router.post("/forgot-password", authController.forgotPassword);
+router.post("/reset-password/:token", authController.resetPassword);
+
+
 
 // Example of protected route
 router.get("/profile", auth, (req, res) => {
