@@ -25,6 +25,7 @@ module.exports = {
     try {
       const { name, email, password, confirmPassword, role } = req.body;
 
+      // Validate required fields
       if (!name || !email || !password || !confirmPassword || !role) {
         return res.status(400).json({ msg: "All fields are required" });
       }
@@ -36,16 +37,26 @@ module.exports = {
       }
 
       const normalizedEmail = email.toLowerCase().trim();
-      let user = await User.findOne({ email: normalizedEmail });
-      if (user) return res.status(400).json({ msg: "This email is already registered" });
+      const backendRole = role === "reader" ? "reader" : "author";
+
+      // Check if the email already exists for the same role
+      const existingUserWithRole = await User.findOne({ email: normalizedEmail, role: backendRole });
+      if (existingUserWithRole) {
+        return res.status(400).json({ msg: `You are already registered as ${backendRole}` });
+      }
+
+      // Optional: just log if email exists with another role
+      const existingUserOtherRole = await User.findOne({ email: normalizedEmail, role: { $ne: backendRole } });
+      if (existingUserOtherRole) {
+        console.log(`Note: ${normalizedEmail} is already registered as ${existingUserOtherRole.role}`);
+        // We don't block registration, just an informational log
+      }
 
       const hashedPassword = await bcrypt.hash(password, 10);
       const otp = generateOTP();
-      const otpExpiry = Date.now() + 5 * 60 * 1000; // 5 MINUTES ONLY
+      const otpExpiry = Date.now() + 5 * 60 * 1000; // 5 minutes
 
-      const backendRole = role === "reader" ? "reader" : "author";
-
-      user = new User({
+      const user = new User({
         name,
         email: normalizedEmail,
         password: hashedPassword,
@@ -59,19 +70,20 @@ module.exports = {
 
       await user.save();
 
+      // Send OTP email
       await transporter.sendMail({
         from: `"WriteSpot" <${process.env.EMAIL}>`,
         to: normalizedEmail,
         subject: "WriteSpot - Your Verification Code",
         html: `
-          <div style="font-family: Arial, sans-serif; text-align: center; padding: 40px; background: #f0fdf4;">
-            <h1 style="color: #16a34a; font-size: 40px;">WriteSpot</h1>
-            <h2>Hello ${name}!</h2>
-            <p>Your verification code is:</p>
-            <h1 style="font-size: 50px; color: #f59e0b; letter-spacing: 10px; margin: 30px 0;">${otp}</h1>
-            <p>This code expires in <strong>5 minutes</strong></p>
-          </div>
-        `,
+        <div style="font-family: Arial, sans-serif; text-align: center; padding: 40px; background: #f0fdf4;">
+          <h1 style="color: #16a34a; font-size: 40px;">WriteSpot</h1>
+          <h2>Hello ${name}!</h2>
+          <p>Your verification code is:</p>
+          <h1 style="font-size: 50px; color: #f59e0b; letter-spacing: 10px; margin: 30px 0;">${otp}</h1>
+          <p>This code expires in <strong>5 minutes</strong></p>
+        </div>
+      `,
       });
 
       res.json({ msg: "Registration successful! Check your email for OTP", email: normalizedEmail });
@@ -91,7 +103,10 @@ module.exports = {
       }
 
       const normalizedEmail = email.toLowerCase().trim();
-      const user = await User.findOne({ email: normalizedEmail });
+      const expectedRole = role === "reader" ? "reader" : "author";
+      
+      // Find user with specific email and role
+      const user = await User.findOne({ email: normalizedEmail, role: expectedRole });
 
       if (user && user.lockUntil && user.lockUntil > Date.now()) {
         const minutesLeft = Math.ceil((user.lockUntil - Date.now()) / 60000);
@@ -109,12 +124,9 @@ module.exports = {
         return res.status(400).json({ msg: "Please verify your email first" });
       }
 
-      const expectedRole = role === "reader" ? "reader" : "author";
-
       const isPasswordCorrect = await bcrypt.compare(password, user.password);
-      const isRoleCorrect = user.role === expectedRole;
 
-      if (!isPasswordCorrect || !isRoleCorrect) {
+      if (!isPasswordCorrect) {
         user.loginAttempts += 1;
 
         if (user.loginAttempts >= 5) {
@@ -157,8 +169,18 @@ module.exports = {
   // ==================== VERIFY OTP ====================
   verifyOtp: async (req, res) => {
     try {
-      const { email, otp } = req.body;
-      const user = await User.findOne({ email: email.toLowerCase() });
+      const { email, otp, role } = req.body;
+      
+      if (!role) {
+        return res.status(400).json({ msg: "Role is required" });
+      }
+
+      const normalizedEmail = email.toLowerCase();
+      const backendRole = role === "reader" ? "reader" : "author";
+      
+      // Find user with specific email and role
+      const user = await User.findOne({ email: normalizedEmail, role: backendRole });
+      
       if (!user) return res.status(400).json({ msg: "User not found" });
 
       if (String(user.otp) !== String(otp).trim()) return res.status(400).json({ msg: "Incorrect OTP" });
@@ -180,8 +202,18 @@ module.exports = {
   // ==================== RESEND OTP ====================
   resendOtp: async (req, res) => {
     try {
-      const { email } = req.body;
-      const user = await User.findOne({ email: email.toLowerCase() });
+      const { email, role } = req.body;
+      
+      if (!role) {
+        return res.status(400).json({ msg: "Role is required" });
+      }
+
+      const normalizedEmail = email.toLowerCase();
+      const backendRole = role === "reader" ? "reader" : "author";
+      
+      // Find user with specific email and role
+      const user = await User.findOne({ email: normalizedEmail, role: backendRole });
+      
       if (!user) return res.status(400).json({ msg: "User not found" });
 
       const otp = generateOTP();
@@ -214,11 +246,16 @@ module.exports = {
   // ==================== FORGOT PASSWORD ====================
   forgotPassword: async (req, res) => {
     try {
-      const { email } = req.body;
+      const { email, role } = req.body;
+      
       if (!email) return res.status(400).json({ msg: "Email is required" });
+      if (!role) return res.status(400).json({ msg: "Role is required" });
 
       const normalizedEmail = email.toLowerCase().trim();
-      const user = await User.findOne({ email: normalizedEmail });
+      const backendRole = role === "reader" ? "reader" : "author";
+      
+      // Find user with specific email and role
+      const user = await User.findOne({ email: normalizedEmail, role: backendRole });
 
       if (!user) {
         return res.json({ msg: "If your email is registered, you will receive a password reset link." });
@@ -269,6 +306,7 @@ module.exports = {
         return res.status(400).json({ msg: "Password must be at least 6 characters" });
       }
 
+      // Find user by reset token regardless of role
       const user = await User.findOne({
         resetToken: token,
         resetTokenExpires: { $gt: Date.now() },
@@ -279,8 +317,8 @@ module.exports = {
       }
 
       user.password = await bcrypt.hash(password, 10);
-      user.resetPasswordToken = null;
-      user.resetPasswordExpiry = null;
+      user.resetToken = null;
+      user.resetTokenExpires = null;
       await user.save();
 
       res.json({ msg: "Password reset successful! You can now login with your new password." });
