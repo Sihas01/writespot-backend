@@ -2,7 +2,6 @@ const Book = require("../models/book.model");
 const { S3Client, GetObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 
-
 // AWS S3 Configuration
 const BUCKET_NAME = "writespot-uploads";
 
@@ -35,6 +34,11 @@ exports.addBook = async (req, res) => {
       drmEnabled   
     } = req.body;
 
+    // Validate required fields
+    if (!title || !authorFirstName || !authorLastName) {
+      return res.status(400).json({ message: "Title and author are required." });
+    }
+
     const book = await Book.create({
       title,
       subtitle,
@@ -55,11 +59,10 @@ exports.addBook = async (req, res) => {
 
     res.status(201).json({ message: "Book added successfully", book });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Something went wrong", error });
+    console.error("Add book error:", error);
+    res.status(500).json({ message: "Something went wrong while adding the book.", error: error.message });
   }
 };
-
 
 // Get all books
 exports.getAllBooks = async (req, res) => {
@@ -81,13 +84,11 @@ exports.getAllBooks = async (req, res) => {
     );
 
     res.json(booksWithCoverUrls);
-
   } catch (err) {
-    console.error("S3 Error:", err);
-    res.status(500).json({ msg: "Server error" });
+    console.error("Get all books error:", err);
+    res.status(500).json({ message: "Something went wrong while fetching books." });
   }
 };
-
 
 // Get books created by logged-in user
 exports.getMyBooks = async (req, res) => {
@@ -95,11 +96,10 @@ exports.getMyBooks = async (req, res) => {
     const books = await Book.find({ createdBy: req.user.id });
     res.json(books);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ msg: "Server Error" });
+    console.error("Get my books error:", err);
+    res.status(500).json({ message: "Something went wrong while fetching your books." });
   }
 };
-
 
 // Get author books with signed S3 URLs
 exports.getAuthorBooks = async (req, res) => {
@@ -122,10 +122,9 @@ exports.getAuthorBooks = async (req, res) => {
     );
 
     res.json(booksWithCoverUrls);
-
   } catch (err) {
-    console.error("S3 Error:", err);
-    res.status(500).json({ msg: "Server error" });
+    console.error("Get author books error:", err);
+    res.status(500).json({ message: "Something went wrong while fetching author books." });
   }
 };
 
@@ -146,14 +145,9 @@ exports.updateBook = async (req, res) => {
       author,
     } = req.body;
 
-    // Find the book
     const book = await Book.findById(id);
+    if (!book) return res.status(404).json({ message: "Book not found" });
 
-    if (!book) {
-      return res.status(404).json({ message: "Book not found" });
-    }
-
-    // Check if the user is the owner of the book
     if (book.createdBy.toString() !== req.user.id) {
       return res.status(403).json({ message: "Not authorized to update this book" });
     }
@@ -170,18 +164,16 @@ exports.updateBook = async (req, res) => {
     book.isbn = isbn !== undefined ? isbn : book.isbn;
     book.fileFormat = fileFormat || book.fileFormat;
 
-    // Update author if provided
     if (author) {
       book.author.firstName = author.firstName || book.author.firstName;
       book.author.lastName = author.lastName || book.author.lastName;
     }
 
     await book.save();
-
     res.json({ message: "Book updated successfully", book });
   } catch (error) {
     console.error("Update book error:", error);
-    res.status(500).json({ message: "Something went wrong", error: error.message });
+    res.status(500).json({ message: "Something went wrong while updating the book.", error: error.message });
   }
 };
 
@@ -189,23 +181,18 @@ exports.updateBook = async (req, res) => {
 exports.deleteBook = async (req, res) => {
   try {
     const { id } = req.params;
-
     const book = await Book.findById(id);
 
-    if (!book) {
-      return res.status(404).json({ message: "Book not found" });
-    }
+    if (!book) return res.status(404).json({ message: "Book not found" });
 
-    // Check if the user is the owner of the book
     if (book.createdBy.toString() !== req.user.id) {
       return res.status(403).json({ message: "Not authorized to delete this book" });
     }
 
     await Book.findByIdAndDelete(id);
-
     res.json({ message: "Book deleted successfully" });
   } catch (error) {
     console.error("Delete book error:", error);
-    res.status(500).json({ message: "Something went wrong", error: error.message });
+    res.status(500).json({ message: "Something went wrong while deleting the book.", error: error.message });
   }
 };

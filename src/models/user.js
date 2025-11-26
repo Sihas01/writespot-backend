@@ -10,7 +10,6 @@ const UserSchema = new mongoose.Schema(
     email: {
       type: String,
       required: true,
-      unique: true,
       lowercase: true,
       trim: true,
     },
@@ -34,6 +33,23 @@ const UserSchema = new mongoose.Schema(
       default: null,
     },
     otpExpiry: {
+      type: Date,
+      default: null,
+    },
+    resetToken: {
+      type: String,
+      default: null
+    },
+    resetTokenExpires: {
+      type: Date,
+      default: null
+    },
+    // NEW FIELDS FOR QA REQUIREMENTS
+    loginAttempts: {
+      type: Number,
+      default: 0,
+    },
+    lockUntil: {
       type: Date,
       default: null,
     },
