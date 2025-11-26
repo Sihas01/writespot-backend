@@ -10,6 +10,10 @@ router.post("/login", authController.login);
 router.post("/verify-otp", authController.verifyOtp);
 router.post("/resend-otp", authController.resendOtp);
 router.post("/forgot-password", authController.forgotPassword);
+router.get("/reset-password/:token", (req, res) => {
+  const { token } = req.params;
+  res.redirect(`${process.env.API}/reset-password/${token}`);
+});
 router.post("/reset-password/:token", authController.resetPassword);
 
 
