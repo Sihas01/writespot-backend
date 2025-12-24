@@ -15,6 +15,8 @@ router.get("/", book.getAllBooks);
 
 router.get("/my", auth, role(["author"]), book.getMyBooks);
 router.get('/mybooks', auth, book.getAuthorBooks);
+router.get("/library", auth, role(["reader"]), book.getMyLibrary);
+router.get("/:id/reader", auth, role(["reader"]), book.getBookByIdForReader);
 router.get("/:id", book.getBookById);
 router.put("/:id", auth, book.updateBook);
 router.delete("/:id", auth, book.deleteBook);
