@@ -75,7 +75,44 @@ exports.addBook = async (req, res) => {
 // Get all books
 exports.getAllBooks = async (req, res) => {
   try {
-    const books = await Book.find(); 
+    const {
+      genre,
+      language,
+      priceMin,
+      priceMax,
+      ratingMin,
+      page = 1,
+      limit = 10,
+    } = req.query;
+
+    const filters = {};
+
+    if (genre) filters.genre = genre;
+    if (language) filters.language = language;
+
+    const priceFilter = {};
+    const minPrice = Number(priceMin);
+    const maxPrice = Number(priceMax);
+    if (!Number.isNaN(minPrice)) priceFilter.$gte = minPrice;
+    if (!Number.isNaN(maxPrice)) priceFilter.$lte = maxPrice;
+    if (Object.keys(priceFilter).length) filters.price = priceFilter;
+
+    const ratingFilter = {};
+    const minRating = Number(ratingMin);
+    if (!Number.isNaN(minRating)) ratingFilter.$gte = minRating;
+    if (Object.keys(ratingFilter).length) filters.rating = ratingFilter;
+
+    const parsedPage = Number(page);
+    const parsedLimit = Number(limit);
+    const pageNum = Math.max(!Number.isNaN(parsedPage) ? parsedPage : 1, 1);
+    const pageSize = Math.min(
+      Math.max(!Number.isNaN(parsedLimit) ? parsedLimit : 10, 1),
+      50
+    );
+
+    const books = await Book.find(filters)
+      .skip((pageNum - 1) * pageSize)
+      .limit(pageSize);
 
     const booksWithCoverUrls = await Promise.all(
       books.map(async (book) => {
