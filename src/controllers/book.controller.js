@@ -57,6 +57,14 @@ exports.addBook = async (req, res) => {
       createdBy: req.user.id
     });
 
+    const axios = require("axios");
+    axios.post(process.env.CONVERSION_SERVICE_URL, {
+      bookId: book._id,
+      manuscriptKey: manuscript,
+      language: language,
+    })
+    .catch(err => console.error("EPUB conversion request failed:", err.message));
+
     res.status(201).json({ message: "Book added successfully", book });
   } catch (error) {
     console.error("Add book error:", error);
