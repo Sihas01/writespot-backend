@@ -75,6 +75,7 @@ exports.addBook = async (req, res) => {
 // Get all books
 exports.getAllBooks = async (req, res) => {
   try {
+<<<<<<< Updated upstream
     const {
       genre,
       language,
@@ -84,6 +85,41 @@ exports.getAllBooks = async (req, res) => {
       page = 1,
       limit = 10,
     } = req.query;
+=======
+    const { genre, language, minPrice, maxPrice } = req.query;
+
+    const filters = {};
+
+    const genreValue = typeof genre === "string" ? genre.trim() : "";
+    if (genreValue) {
+      filters.genre = genreValue;
+    }
+
+    const languageValue = typeof language === "string" ? language.trim() : "";
+    if (languageValue) {
+      filters.language = languageValue;
+    }
+
+    const priceFilter = {};
+    const parsedMinPrice =
+      typeof minPrice === "string" && minPrice !== "" ? Number(minPrice) : NaN;
+    const parsedMaxPrice =
+      typeof maxPrice === "string" && maxPrice !== "" ? Number(maxPrice) : NaN;
+
+    if (Number.isFinite(parsedMinPrice)) {
+      priceFilter.$gte = parsedMinPrice;
+    }
+
+    if (Number.isFinite(parsedMaxPrice)) {
+      priceFilter.$lte = parsedMaxPrice;
+    }
+
+    if (Object.keys(priceFilter).length) {
+      filters.price = priceFilter;
+    }
+
+    const books = await Book.find(filters);
+>>>>>>> Stashed changes
 
     const filters = {};
 
