@@ -3,6 +3,7 @@ const Cart = require("../models/cart.model");
 const Book = require("../models/book.model");
 const Order = require("../models/order.model");
 const User = require("../models/user");
+const Transaction = require("../models/transaction.model");
 
 const DEFAULT_RETURN_URL = "http://localhost:5173/reader/dashboard/store";
 const DEFAULT_CANCEL_URL = "http://localhost:5173/reader/dashboard/store";
@@ -301,6 +302,7 @@ exports.notify = async (req, res) => {
       "-3": "FAILED",
     };
     const newStatus = statusMap[status_code] || "FAILED";
+    const previousStatus = order.status;
 
     // Record notification details
     order.paymentId = payment_id || order.paymentId;
@@ -342,6 +344,42 @@ exports.notify = async (req, res) => {
           { user: order.user },
           { $pull: { items: { book: { $in: purchasedIds } } } }
         );
+      }
+
+      if (previousStatus !== "COMPLETED" && Array.isArray(order.items) && order.items.length) {
+        const bookIds = order.items
+          .map((item) => item.bookId)
+          .filter(Boolean);
+
+        const books = await Book.find({ _id: { $in: bookIds } }).select("_id title createdBy");
+        const bookMap = books.reduce((acc, book) => {
+          acc[book._id.toString()] = book;
+          return acc;
+        }, {});
+
+        const creditTransactions = [];
+        order.items.forEach((item) => {
+          const book = bookMap[item.bookId?.toString()];
+          const authorId = book?.createdBy;
+          const quantity = item.quantity || 1;
+          const amount = Number(item.priceSnapshot || 0) * quantity;
+
+          if (!authorId || !book) return;
+
+          creditTransactions.push({
+            userId: authorId,
+            relatedBookId: book._id,
+            amount,
+            quantity,
+            type: "CREDIT",
+            description: `Sale of Book ${book.title || ""}`.trim(),
+            status: "COMPLETED",
+          });
+        });
+
+        if (creditTransactions.length) {
+          await Transaction.insertMany(creditTransactions);
+        }
       }
 
       await order.save();
