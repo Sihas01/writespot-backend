@@ -1,5 +1,26 @@
+const mongoose = require("mongoose");
+const { S3Client, GetObjectCommand } = require("@aws-sdk/client-s3");
+const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 const Transaction = require("../models/transaction.model");
 const User = require("../models/user");
+
+const BUCKET_NAME = "writespot-uploads";
+const s3 = new S3Client({
+  region: "us-east-1",
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  },
+});
+
+const buildCoverUrlFromPath = async (coverImagePath) => {
+  if (!coverImagePath) return null;
+  const command = new GetObjectCommand({
+    Bucket: BUCKET_NAME,
+    Key: coverImagePath,
+  });
+  return getSignedUrl(s3, command, { expiresIn: 300 });
+};
 
 const MIN_WITHDRAW_AMOUNT = 1000;
 
@@ -10,26 +31,64 @@ const parsePagination = (req) => {
   return { page, limit, skip };
 };
 
+const parseSort = (req) => {
+  const sortBy = (req.query.sortBy || "date").toString().trim().toLowerCase();
+  const sortFieldMap = {
+    date: "createdAt",
+    amount: "amount",
+    type: "type",
+  };
+  const field = sortFieldMap[sortBy] || "createdAt";
+  const sort = {};
+  sort[field] = field === "amount" ? -1 : -1; // default descending
+  return sort;
+};
+
 const computeSummary = async (userId) => {
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const userObjectId = new mongoose.Types.ObjectId(userId);
 
   const [totals, monthTotals] = await Promise.all([
     Transaction.aggregate([
-      { $match: { userId, status: "COMPLETED" } },
+      { $match: { userId: userObjectId, status: "COMPLETED" } },
+      {
+        $addFields: {
+          amountNumeric: {
+            $convert: {
+              input: "$amount",
+              to: "double",
+              onError: 0,
+              onNull: 0,
+            },
+          },
+        },
+      },
       {
         $group: {
           _id: "$type",
-          amount: { $sum: "$amount" },
+          amount: { $sum: "$amountNumeric" },
         },
       },
     ]),
     Transaction.aggregate([
-      { $match: { userId, status: "COMPLETED", createdAt: { $gte: monthStart } } },
+      { $match: { userId: userObjectId, status: "COMPLETED", createdAt: { $gte: monthStart } } },
+      {
+        $addFields: {
+          amountNumeric: {
+            $convert: {
+              input: "$amount",
+              to: "double",
+              onError: 0,
+              onNull: 0,
+            },
+          },
+        },
+      },
       {
         $group: {
           _id: "$type",
-          amount: { $sum: "$amount" },
+          amount: { $sum: "$amountNumeric" },
         },
       },
     ]),
@@ -59,12 +118,41 @@ exports.getSummary = async (req, res) => {
 
 exports.getByBook = async (req, res) => {
   try {
+    const userObjectId = new mongoose.Types.ObjectId(req.user.id);
+
     const results = await Transaction.aggregate([
-      { $match: { userId: req.user.id, type: "CREDIT", status: "COMPLETED", relatedBookId: { $ne: null } } },
+      {
+        $match: {
+          userId: userObjectId,
+          type: "CREDIT",
+          status: "COMPLETED",
+          relatedBookId: { $ne: null },
+        },
+      },
+      {
+        $addFields: {
+          relatedBookObjectId: {
+            $convert: {
+              input: "$relatedBookId",
+              to: "objectId",
+              onError: "$relatedBookId",
+              onNull: null,
+            },
+          },
+          amountNumeric: {
+            $convert: {
+              input: "$amount",
+              to: "double",
+              onError: 0,
+              onNull: 0,
+            },
+          },
+        },
+      },
       {
         $group: {
-          _id: "$relatedBookId",
-          totalEarnings: { $sum: "$amount" },
+          _id: "$relatedBookObjectId",
+          totalEarnings: { $sum: "$amountNumeric" },
           totalQuantity: { $sum: "$quantity" },
         },
       },
@@ -81,6 +169,7 @@ exports.getByBook = async (req, res) => {
         $project: {
           bookId: "$_id",
           title: "$book.title",
+          coverImagePath: "$book.coverImagePath",
           totalEarnings: 1,
           totalQuantity: 1,
         },
@@ -88,7 +177,14 @@ exports.getByBook = async (req, res) => {
       { $sort: { totalEarnings: -1 } },
     ]);
 
-    return res.json({ data: results });
+    const dataWithSignedCovers = await Promise.all(
+      results.map(async (row) => {
+        const coverUrl = await buildCoverUrlFromPath(row.coverImagePath);
+        return { ...row, coverUrl };
+      })
+    );
+
+    return res.json({ data: dataWithSignedCovers });
   } catch (error) {
     console.error("getByBook error:", error);
     return res.status(500).json({ message: "Failed to fetch earnings by book" });
@@ -98,22 +194,29 @@ exports.getByBook = async (req, res) => {
 exports.getHistory = async (req, res) => {
   try {
     const { page, limit, skip } = parsePagination(req);
+    const sort = parseSort(req);
 
     const [items, total] = await Promise.all([
       Transaction.find({ userId: req.user.id })
-        .sort({ createdAt: -1 })
+        .sort(sort)
         .skip(skip)
         .limit(limit),
       Transaction.countDocuments({ userId: req.user.id }),
     ]);
 
+    const data = items.map((txn) => ({
+      ...txn.toObject(),
+      invoiceId: txn._id ? `INV-${txn._id.toString().slice(-6).toUpperCase()}` : undefined,
+      status: txn.status === "COMPLETED" ? "Completed" : txn.status || "Unknown",
+      recipient: txn.recipient || "Unknown buyer",
+    }));
+
     return res.json({
-      data: items,
+      data,
       pagination: {
-        page,
-        limit,
-        total,
+        totalItems: total,
         totalPages: Math.ceil(total / limit) || 1,
+        currentPage: page,
       },
     });
   } catch (error) {
