@@ -4,10 +4,10 @@ const Book = require("../models/book.model");
 const Order = require("../models/order.model");
 const User = require("../models/user");
 
-const DEFAULT_RETURN_URL = "http://localhost:5173/store?payment=success";
-const DEFAULT_CANCEL_URL = "http://localhost:5173/store?payment=canceled";
+const DEFAULT_RETURN_URL = "http://localhost:5173/reader/dashboard/store";
+const DEFAULT_CANCEL_URL = "http://localhost:5173/reader/dashboard/store";
 const DEFAULT_NOTIFY_URL = "https://api.mysite.com/payhere/notify";
-const DEFAULT_FAILURE_URL = "http://localhost:5173/store?payment=failed";
+const DEFAULT_FAILURE_URL = "http://localhost:5173/reader/dashboard/store";
 const DEFAULT_CURRENCY = "LKR";
 
 const getEnvTrimmed = (key, fallback = "") => {
