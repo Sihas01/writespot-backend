@@ -227,7 +227,7 @@ exports.getHistory = async (req, res) => {
 
 exports.postWithdraw = async (req, res) => {
   try {
-    const { amount, bankDetails } = req.body || {};
+    const { amount } = req.body || {};
     const numericAmount = Number(amount);
 
     if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
@@ -246,8 +246,8 @@ exports.postWithdraw = async (req, res) => {
       return res.status(403).json({ message: "Email not verified" });
     }
 
-    const summary = await computeSummary(req.user.id);
-    if (numericAmount > summary.currentBalance) {
+    const summaryBefore = await computeSummary(req.user.id);
+    if (numericAmount > summaryBefore.currentBalance) {
       return res.status(400).json({ message: "Insufficient balance" });
     }
 
@@ -256,14 +256,16 @@ exports.postWithdraw = async (req, res) => {
       amount: numericAmount,
       quantity: 1,
       type: "DEBIT",
-      description: "Author withdrawal",
+      description: "withdrawal",
       status: "COMPLETED",
     });
 
-    console.log("Mock Bank Service: transferring funds", { userId: req.user.id, amount: numericAmount, bankDetails });
-    console.log("Mock Email Service: withdrawal confirmation", { userId: req.user.id, amount: numericAmount });
+    const summaryAfter = await computeSummary(req.user.id);
 
-    return res.json({ message: "Withdrawal requested successfully" });
+    return res.json({
+      message: "Withdrawal successful",
+      balance: summaryAfter.currentBalance,
+    });
   } catch (error) {
     console.error("postWithdraw error:", error);
     return res.status(500).json({ message: "Failed to process withdrawal" });
