@@ -108,12 +108,15 @@ exports.addBook = async (req, res) => {
 // Get all books
 exports.getAllBooks = async (req, res) => {
   try {
-    const books = await Book.find(); 
+    const books = await Book.find();
+
+    const ownedIds = req.user?.id ? new Set(await getOwnedBookIds(req.user.id)) : null;
 
     const booksWithCoverUrls = await Promise.all(
       books.map(async (book) => {
         const coverUrl = await buildCoverUrl(book);
-        return { ...book.toObject(), coverUrl };
+        const isOwned = ownedIds ? ownedIds.has(book._id.toString()) : false;
+        return { ...book.toObject(), coverUrl, isOwned };
       })
     );
 
@@ -140,6 +143,12 @@ exports.getBookById = async (req, res) => {
 
     const coverUrl = await buildCoverUrl(book);
 
+    let isOwned = false;
+    if (req.user?.id) {
+      const ownedIds = await getOwnedBookIds(req.user.id);
+      isOwned = ownedIds.includes(book._id.toString());
+    }
+
     let authorProfile = null;
     if (book.createdBy) {
       const authorUser = await User.findById(book.createdBy).select(
@@ -159,6 +168,7 @@ exports.getBookById = async (req, res) => {
       ...book.toObject(),
       coverUrl,
       authorProfile,
+      isOwned,
     };
 
     res.json(response);

@@ -6,7 +6,7 @@ const User = require("../models/user");
 
 const DEFAULT_RETURN_URL = "http://localhost:5173/reader/dashboard/store";
 const DEFAULT_CANCEL_URL = "http://localhost:5173/reader/dashboard/store";
-const DEFAULT_NOTIFY_URL = "https://api.mysite.com/payhere/notify";
+const DEFAULT_NOTIFY_URL = "https://effectively-contrastable-pa.ngrok-free.dev/api/payments/notify";
 const DEFAULT_FAILURE_URL = "http://localhost:5173/reader/dashboard/store";
 const DEFAULT_CURRENCY = "LKR";
 
@@ -45,6 +45,27 @@ const computePayHereMd5Sig = ({ merchantId, merchantSecret, orderId, payhereAmou
   return crypto.createHash("md5").update(data).digest("hex").toUpperCase();
 };
 
+const collectOwnedBookIds = async (userId) => {
+  const [orders, user] = await Promise.all([
+    Order.find({ user: userId, status: "COMPLETED" }).select("items"),
+    User.findById(userId).select("purchasedBooks"),
+  ]);
+
+  const owned = new Set();
+
+  (orders || []).forEach((order) => {
+    (order.items || []).forEach((item) => {
+      if (item.bookId) owned.add(item.bookId.toString());
+    });
+  });
+
+  if (user && Array.isArray(user.purchasedBooks)) {
+    user.purchasedBooks.forEach((bookId) => owned.add(bookId.toString()));
+  }
+
+  return owned;
+};
+
 const upsertPurchasedBooks = async (userId, items) => {
   const user = await User.findById(userId).select("purchasedBooks");
   if (!user) return;
@@ -55,10 +76,23 @@ const upsertPurchasedBooks = async (userId, items) => {
   await user.save();
 };
 
-const clearCart = async (userId) => {
+const removeCartItems = async (userId, purchasedItems = []) => {
+  if (!Array.isArray(purchasedItems) || purchasedItems.length === 0) return;
   const cart = await Cart.findOne({ user: userId });
-  if (cart) {
-    cart.items = [];
+  if (!cart || !Array.isArray(cart.items)) return;
+
+  const purchasedIds = new Set(
+    purchasedItems
+      .map((item) => (item.bookId || item.book || item).toString())
+      .filter(Boolean)
+  );
+
+  const nextItems = cart.items.filter(
+    (item) => !purchasedIds.has(item.book.toString())
+  );
+
+  if (nextItems.length !== cart.items.length) {
+    cart.items = nextItems;
     await cart.save();
   }
 };
@@ -91,6 +125,19 @@ exports.createOrderAndHash = async (req, res) => {
       map[book._id.toString()] = book;
       return map;
     }, {});
+
+    const ownedIds = await collectOwnedBookIds(req.user.id);
+    const alreadyOwnedTitles = cart.items
+      .filter((item) => ownedIds.has(item.book.toString()))
+      .map((item) => bookMap[item.book.toString()]?.title)
+      .filter(Boolean);
+
+    if (alreadyOwnedTitles.length) {
+      return res.status(400).json({
+        message: "Book already purchased",
+        owned: alreadyOwnedTitles,
+      });
+    }
 
     const items = cart.items
       .map((item) => {
@@ -217,10 +264,10 @@ exports.notify = async (req, res) => {
       payhere_currency,
       status_code,
       md5sig,
-      custom_1,
-      custom_2,
       status_message,
       method,
+      custom_1,
+      custom_2,
     } = req.body || {};
 
     if (!order_id) {
@@ -253,14 +300,9 @@ exports.notify = async (req, res) => {
       "-2": "FAILED",
       "-3": "FAILED",
     };
-
     const newStatus = statusMap[status_code] || "FAILED";
 
-    // Idempotency: if already completed, just return success
-    if (order.status === "COMPLETED") {
-      return res.json({ message: "Already completed" });
-    }
-
+    // Record notification details
     order.paymentId = payment_id || order.paymentId;
     order.statusCode = statusCodeNum;
     order.md5sig = md5sig;
@@ -272,20 +314,42 @@ exports.notify = async (req, res) => {
       payhere_currency,
       status_code,
       md5sig,
-      custom_1,
-      custom_2,
       status_message,
       method,
+      custom_1,
+      custom_2,
     };
     order.status = newStatus;
-    await order.save();
 
     if (newStatus === "COMPLETED") {
-      await upsertPurchasedBooks(order.user, order.items);
-      await clearCart(order.user);
+      // Upsert purchased books on user (deduped)
+      const purchasedIds = (order.items || [])
+        .map((item) => item.bookId)
+        .filter(Boolean)
+        .map((id) => id.toString());
+
+      if (purchasedIds.length) {
+        const user = await User.findById(order.user).select("purchasedBooks");
+        if (user) {
+          const owned = new Set((user.purchasedBooks || []).map((id) => id.toString()));
+          purchasedIds.forEach((id) => owned.add(id));
+          user.purchasedBooks = Array.from(owned);
+          await user.save();
+        }
+
+        // Remove only purchased items from cart
+        await Cart.findOneAndUpdate(
+          { user: order.user },
+          { $pull: { items: { book: { $in: purchasedIds } } } }
+        );
+      }
+
+      await order.save();
       return res.json({ message: "Payment completed" });
     }
 
+    // Non-success: save status and raw notification, but leave cart/library untouched
+    await order.save();
     return res.json({ message: `Payment ${newStatus.toLowerCase()}` });
   } catch (error) {
     console.error("notify error:", error);
