@@ -1,5 +1,7 @@
+const mongoose = require("mongoose");
 const Book = require("../models/book.model");
 const User = require("../models/user");
+const Order = require("../models/order.model");
 const { S3Client, GetObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 
@@ -13,6 +15,36 @@ const s3 = new S3Client({
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
   },
 });
+
+const buildCoverUrl = async (book) => {
+  if (!book.coverImagePath) return null;
+  const command = new GetObjectCommand({
+    Bucket: BUCKET_NAME,
+    Key: book.coverImagePath,
+  });
+  return getSignedUrl(s3, command, { expiresIn: 300 });
+};
+
+const getOwnedBookIds = async (userId) => {
+  const [orders, user] = await Promise.all([
+    Order.find({ user: userId, status: "COMPLETED" }).select("items"),
+    User.findById(userId).select("purchasedBooks"),
+  ]);
+
+  const owned = new Set();
+
+  (orders || []).forEach((order) => {
+    (order.items || []).forEach((item) => {
+      if (item.bookId) owned.add(item.bookId.toString());
+    });
+  });
+
+  if (user && Array.isArray(user.purchasedBooks)) {
+    user.purchasedBooks.forEach((bookId) => owned.add(bookId.toString()));
+  }
+
+  return Array.from(owned);
+};
 
 // Add a new book
 exports.addBook = async (req, res) => {
@@ -74,9 +106,9 @@ exports.addBook = async (req, res) => {
 };
 
 // Get all books
+// Get all books
 exports.getAllBooks = async (req, res) => {
   try {
-<<<<<<< Updated upstream
     const {
       genre,
       language,
@@ -86,109 +118,84 @@ exports.getAllBooks = async (req, res) => {
       page = 1,
       limit = 10,
     } = req.query;
-=======
-    const { genre, language, minPrice, maxPrice } = req.query;
-
-    const filters = {};
-
-    const genreValue = typeof genre === "string" ? genre.trim() : "";
-    if (genreValue) {
-      filters.genre = genreValue;
-    }
-
-    const languageValue = typeof language === "string" ? language.trim() : "";
-    if (languageValue) {
-      filters.language = languageValue;
-    }
-
-    const priceFilter = {};
-    const parsedMinPrice =
-      typeof minPrice === "string" && minPrice !== "" ? Number(minPrice) : NaN;
-    const parsedMaxPrice =
-      typeof maxPrice === "string" && maxPrice !== "" ? Number(maxPrice) : NaN;
-
-    if (Number.isFinite(parsedMinPrice)) {
-      priceFilter.$gte = parsedMinPrice;
-    }
-
-    if (Number.isFinite(parsedMaxPrice)) {
-      priceFilter.$lte = parsedMaxPrice;
-    }
-
-    if (Object.keys(priceFilter).length) {
-      filters.price = priceFilter;
-    }
-
-    const books = await Book.find(filters);
->>>>>>> Stashed changes
 
     const filters = {};
 
     if (genre) filters.genre = genre;
     if (language) filters.language = language;
 
+    // Price filter
     const priceFilter = {};
     const minPrice = Number(priceMin);
     const maxPrice = Number(priceMax);
+
     if (!Number.isNaN(minPrice)) priceFilter.$gte = minPrice;
     if (!Number.isNaN(maxPrice)) priceFilter.$lte = maxPrice;
-    if (Object.keys(priceFilter).length) filters.price = priceFilter;
 
-    const ratingFilter = {};
-    const minRating = Number(ratingMin);
-    if (!Number.isNaN(minRating)) ratingFilter.$gte = minRating;
-    if (Object.keys(ratingFilter).length) filters.rating = ratingFilter;
+    if (Object.keys(priceFilter).length) {
+      filters.price = priceFilter;
+    }
 
-    const parsedPage = Number(page);
-    const parsedLimit = Number(limit);
-    const pageNum = Math.max(!Number.isNaN(parsedPage) ? parsedPage : 1, 1);
-    const pageSize = Math.min(
-      Math.max(!Number.isNaN(parsedLimit) ? parsedLimit : 10, 1),
-      50
-    );
+    // Rating filter
+    if (!Number.isNaN(Number(ratingMin))) {
+      filters.rating = { $gte: Number(ratingMin) };
+    }
+
+    // Pagination
+    const pageNum = Math.max(Number(page) || 1, 1);
+    const pageSize = Math.min(Math.max(Number(limit) || 10, 1), 50);
 
     const books = await Book.find(filters)
       .skip((pageNum - 1) * pageSize)
       .limit(pageSize);
 
+    const ownedIds = req.user?.id
+      ? new Set(await getOwnedBookIds(req.user.id))
+      : null;
+
     const booksWithCoverUrls = await Promise.all(
       books.map(async (book) => {
-        let coverUrl = null;
-        if (book.coverImagePath) {
-          const command = new GetObjectCommand({
-            Bucket: BUCKET_NAME,
-            Key: book.coverImagePath,
-          });
-          coverUrl = await getSignedUrl(s3, command, { expiresIn: 300 });
-        }
-        return { ...book.toObject(), coverUrl };
+        const coverUrl = await buildCoverUrl(book);
+        return {
+          ...book.toObject(),
+          coverUrl,
+          isOwned: ownedIds
+            ? ownedIds.has(book._id.toString())
+            : false,
+        };
       })
     );
 
     res.json(booksWithCoverUrls);
   } catch (err) {
     console.error("Get all books error:", err);
-    res.status(500).json({ message: "Something went wrong while fetching books." });
+    res.status(500).json({
+      message: "Something went wrong while fetching books.",
+    });
   }
 };
+
 
 // Get book by ID (public)
 exports.getBookById = async (req, res) => {
   try {
     const { id } = req.params;
 
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid book id" });
+    }
+
     const book = await Book.findById(id);
     if (!book) {
       return res.status(404).json({ message: "Book not found" });
     }
 
-    let coverUrl = null;
-    if (book.coverImagePath) {
-      const command = new GetObjectCommand({
-        Bucket: BUCKET_NAME,
-        Key: book.coverImagePath,
-      });
-      coverUrl = await getSignedUrl(s3, command, { expiresIn: 300 });
+    const coverUrl = await buildCoverUrl(book);
+
+    let isOwned = false;
+    if (req.user?.id) {
+      const ownedIds = await getOwnedBookIds(req.user.id);
+      isOwned = ownedIds.includes(book._id.toString());
     }
 
     let authorProfile = null;
@@ -210,6 +217,7 @@ exports.getBookById = async (req, res) => {
       ...book.toObject(),
       coverUrl,
       authorProfile,
+      isOwned,
     };
 
     res.json(response);
@@ -257,6 +265,85 @@ exports.getAuthorBooks = async (req, res) => {
   } catch (err) {
     console.error("Get author books error:", err);
     res.status(500).json({ message: "Something went wrong while fetching author books." });
+  }
+};
+
+// Get purchased books for a reader
+exports.getMyLibrary = async (req, res) => {
+  try {
+    const ownedBookIds = await getOwnedBookIds(req.user.id);
+    if (!ownedBookIds.length) {
+      return res.json([]);
+    }
+
+    const books = await Book.find({ _id: { $in: ownedBookIds } });
+    const booksWithCoverUrls = await Promise.all(
+      books.map(async (book) => {
+        const coverUrl = await buildCoverUrl(book);
+        return { ...book.toObject(), coverUrl };
+      })
+    );
+
+    res.json(booksWithCoverUrls);
+  } catch (err) {
+    console.error("Get my library error:", err);
+    res.status(500).json({ message: "Something went wrong while fetching your library." });
+  }
+};
+
+// Get book by ID for reader with ownership flag
+exports.getBookByIdForReader = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid book id" });
+    }
+
+    const book = await Book.findById(id);
+    if (!book) {
+      return res.status(404).json({ message: "Book not found" });
+    }
+
+    const coverUrl = await buildCoverUrl(book);
+
+    let authorProfile = null;
+    if (book.createdBy) {
+      const authorUser = await User.findById(book.createdBy).select(
+        "name email role"
+      );
+      if (authorUser) {
+        authorProfile = {
+          id: authorUser._id,
+          name: authorUser.name,
+          email: authorUser.email,
+          role: authorUser.role,
+        };
+      }
+    }
+
+    const ownedBookIds = await getOwnedBookIds(req.user.id);
+    const isOwned = ownedBookIds.includes(book._id.toString());
+
+    const response = {
+      ...book.toObject(),
+      coverUrl,
+      authorProfile,
+      isOwned,
+    };
+
+    if (isOwned) {
+      delete response.price;
+      delete response.discount;
+    }
+
+    res.json(response);
+  } catch (error) {
+    console.error("Get book by id (reader) error:", error);
+    res.status(500).json({
+      message: "Something went wrong while fetching the book.",
+      error: error.message,
+    });
   }
 };
 

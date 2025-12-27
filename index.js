@@ -9,6 +9,12 @@ app.use(express.json());
 
 app.use('/api/auth', require('./src/routes/auth.routes'));
 
+app.use("/cart", require("./src/routes/cart.routes"));
+
+app.use("/api/payments", require("./src/routes/payment.routes"));
+// Alias without /api to support existing frontend calls
+app.use("/payments", require("./src/routes/payment.routes"));
+
 
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log("DB Connected"))
