@@ -112,36 +112,43 @@ exports.getAllBooks = async (req, res) => {
     const {
       genre,
       language,
-      priceMin,
-      priceMax,
       ratingMin,
       page = 1,
       limit = 10,
     } = req.query;
 
+    const escapeRegExp = (value) =>
+      String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const normalizeList = (value) => {
+      if (!value) return [];
+      const list = Array.isArray(value) ? value : String(value).split(",");
+      return list.map((item) => item.trim()).filter(Boolean);
+    };
+
     const filters = {};
+    const genres = normalizeList(genre);
+    const languages = normalizeList(language);
 
-    if (genre) filters.genre = genre;
-    if (language) filters.language = language;
-
-    // Price filter
-    const priceFilter = {};
-    const minPrice = Number(priceMin);
-    const maxPrice = Number(priceMax);
-
-    if (!Number.isNaN(minPrice)) priceFilter.$gte = minPrice;
-    if (!Number.isNaN(maxPrice)) priceFilter.$lte = maxPrice;
-
-    if (Object.keys(priceFilter).length) {
-      filters.price = priceFilter;
+    if (genres.length) {
+      filters.genre = {
+        $in: genres.map(
+          (item) => new RegExp(`^${escapeRegExp(item)}$`, "i")
+        ),
+      };
     }
 
-    // Rating filter
+    if (languages.length) {
+      filters.language = {
+        $in: languages.map(
+          (item) => new RegExp(`^${escapeRegExp(item)}$`, "i")
+        ),
+      };
+    }
+
     if (!Number.isNaN(Number(ratingMin))) {
       filters.rating = { $gte: Number(ratingMin) };
     }
 
-    // Pagination
     const pageNum = Math.max(Number(page) || 1, 1);
     const pageSize = Math.min(Math.max(Number(limit) || 10, 1), 50);
 
