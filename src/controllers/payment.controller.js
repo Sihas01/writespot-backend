@@ -5,10 +5,10 @@ const Order = require("../models/order.model");
 const User = require("../models/user");
 const Transaction = require("../models/transaction.model");
 
-const DEFAULT_RETURN_URL = "http://localhost:5173/reader/dashboard/store";
-const DEFAULT_CANCEL_URL = "http://localhost:5173/reader/dashboard/store";
-const DEFAULT_NOTIFY_URL = "https://effectively-contrastable-pa.ngrok-free.dev/api/payments/notify";
-const DEFAULT_FAILURE_URL = "http://localhost:5173/reader/dashboard/store";
+const DEFAULT_RETURN_URL = "https://ws.ebooks.lk/reader/dashboard/store";
+const DEFAULT_CANCEL_URL = "https://ws.ebooks.lk/reader/dashboard/store";
+const DEFAULT_FAILURE_URL = "https://ws.ebooks.lk/reader/dashboard/store";
+const DEFAULT_NOTIFY_URL = "https://ws.ebooks.lk/api/payments/notify";
 const DEFAULT_CURRENCY = "LKR";
 
 const getEnvTrimmed = (key, fallback = "") => {
