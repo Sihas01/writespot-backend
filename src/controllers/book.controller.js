@@ -1,4 +1,5 @@
 const Book = require("../models/book.model");
+const User = require("../models/user");
 const { S3Client, GetObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 
@@ -168,6 +169,56 @@ exports.getAllBooks = async (req, res) => {
   } catch (err) {
     console.error("Get all books error:", err);
     res.status(500).json({ message: "Something went wrong while fetching books." });
+  }
+};
+
+// Get book by ID (public)
+exports.getBookById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const book = await Book.findById(id);
+    if (!book) {
+      return res.status(404).json({ message: "Book not found" });
+    }
+
+    let coverUrl = null;
+    if (book.coverImagePath) {
+      const command = new GetObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: book.coverImagePath,
+      });
+      coverUrl = await getSignedUrl(s3, command, { expiresIn: 300 });
+    }
+
+    let authorProfile = null;
+    if (book.createdBy) {
+      const authorUser = await User.findById(book.createdBy).select(
+        "name email role"
+      );
+      if (authorUser) {
+        authorProfile = {
+          id: authorUser._id,
+          name: authorUser.name,
+          email: authorUser.email,
+          role: authorUser.role,
+        };
+      }
+    }
+
+    const response = {
+      ...book.toObject(),
+      coverUrl,
+      authorProfile,
+    };
+
+    res.json(response);
+  } catch (error) {
+    console.error("Get book by id error:", error);
+    res.status(500).json({
+      message: "Something went wrong while fetching the book.",
+      error: error.message,
+    });
   }
 };
 
