@@ -24,6 +24,10 @@ const UserSchema = new mongoose.Schema(
       default: 'reader',
       required: true,
     },
+    purchasedBooks: {
+      type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Book' }],
+      default: [],
+    },
     isVerified: {
       type: Boolean,
       default: false,

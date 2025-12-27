@@ -13,6 +13,7 @@ const bookSchema = new mongoose.Schema({
     keywords: [String],
     price: Number,
     discount: Number,
+    rating: { type: Number, min: 0, max: 5 },
     isbn: String,
     fileFormat: String,
     coverImagePath: String,
