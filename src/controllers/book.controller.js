@@ -106,26 +106,75 @@ exports.addBook = async (req, res) => {
 };
 
 // Get all books
+// Get all books
 exports.getAllBooks = async (req, res) => {
   try {
-    const books = await Book.find();
+    const {
+      genre,
+      language,
+      priceMin,
+      priceMax,
+      ratingMin,
+      page = 1,
+      limit = 10,
+    } = req.query;
 
-    const ownedIds = req.user?.id ? new Set(await getOwnedBookIds(req.user.id)) : null;
+    const filters = {};
+
+    if (genre) filters.genre = genre;
+    if (language) filters.language = language;
+
+    // Price filter
+    const priceFilter = {};
+    const minPrice = Number(priceMin);
+    const maxPrice = Number(priceMax);
+
+    if (!Number.isNaN(minPrice)) priceFilter.$gte = minPrice;
+    if (!Number.isNaN(maxPrice)) priceFilter.$lte = maxPrice;
+
+    if (Object.keys(priceFilter).length) {
+      filters.price = priceFilter;
+    }
+
+    // Rating filter
+    if (!Number.isNaN(Number(ratingMin))) {
+      filters.rating = { $gte: Number(ratingMin) };
+    }
+
+    // Pagination
+    const pageNum = Math.max(Number(page) || 1, 1);
+    const pageSize = Math.min(Math.max(Number(limit) || 10, 1), 50);
+
+    const books = await Book.find(filters)
+      .skip((pageNum - 1) * pageSize)
+      .limit(pageSize);
+
+    const ownedIds = req.user?.id
+      ? new Set(await getOwnedBookIds(req.user.id))
+      : null;
 
     const booksWithCoverUrls = await Promise.all(
       books.map(async (book) => {
         const coverUrl = await buildCoverUrl(book);
-        const isOwned = ownedIds ? ownedIds.has(book._id.toString()) : false;
-        return { ...book.toObject(), coverUrl, isOwned };
+        return {
+          ...book.toObject(),
+          coverUrl,
+          isOwned: ownedIds
+            ? ownedIds.has(book._id.toString())
+            : false,
+        };
       })
     );
 
     res.json(booksWithCoverUrls);
   } catch (err) {
     console.error("Get all books error:", err);
-    res.status(500).json({ message: "Something went wrong while fetching books." });
+    res.status(500).json({
+      message: "Something went wrong while fetching books.",
+    });
   }
 };
+
 
 // Get book by ID (public)
 exports.getBookById = async (req, res) => {

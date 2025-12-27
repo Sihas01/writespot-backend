@@ -14,6 +14,20 @@ const transporter = nodemailer.createTransport({
   },
 });
 
+// Allow local dev without working SMTP creds.
+const EMAIL_DEV_MODE = String(process.env.EMAIL_DEV_MODE).toLowerCase() === "true";
+const sendMailSafe = async (options) => {
+  if (EMAIL_DEV_MODE) {
+    console.log("[DEV_EMAIL_MODE] Email send skipped; payload:", {
+      to: options.to,
+      subject: options.subject,
+      preview: options.html ? options.html.slice(0, 200) : options.text,
+    });
+    return;
+  }
+  return transporter.sendMail(options);
+};
+
 // Generate OTP
 function generateOTP() {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -71,7 +85,7 @@ module.exports = {
       await user.save();
 
       // Send OTP email
-      await transporter.sendMail({
+      await sendMailSafe({
         from: `"WriteSpot" <${process.env.EMAIL}>`,
         to: normalizedEmail,
         subject: "WriteSpot - Your Verification Code",
@@ -221,7 +235,7 @@ module.exports = {
       user.otpExpiry = Date.now() + 5 * 60 * 1000; // 5 MINUTES ONLY
       await user.save();
 
-      await transporter.sendMail({
+      await sendMailSafe({
         from: `"WriteSpot" <${process.env.EMAIL}>`,
         to: user.email,
         subject: "WriteSpot - New Verification Code",
@@ -268,7 +282,7 @@ module.exports = {
 
       const resetLink = `${process.env.API}/reset-password/${resetToken}`;
 
-      await transporter.sendMail({
+      await sendMailSafe({
         from: `"WriteSpot" <${process.env.EMAIL}>`,
         to: normalizedEmail,
         subject: "WriteSpot - Reset Your Password",
