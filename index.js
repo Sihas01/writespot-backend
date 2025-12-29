@@ -15,6 +15,7 @@ app.use("/api/payments", require("./src/routes/payment.routes"));
 // Alias without /api to support existing frontend calls
 app.use("/payments", require("./src/routes/payment.routes"));
 app.use("/api/revenue", require("./src/routes/revenueRoutes"));
+app.use("/author-profiles", require("./src/routes/authorProfile.routes"));
 
 
 mongoose.connect(process.env.MONGO_URI)

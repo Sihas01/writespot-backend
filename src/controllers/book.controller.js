@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const Book = require("../models/book.model");
 const User = require("../models/user");
+const AuthorProfile = require("../models/authorProfile.model");
 const Order = require("../models/order.model");
 const { S3Client, GetObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
@@ -23,6 +24,48 @@ const buildCoverUrl = async (book) => {
     Key: book.coverImagePath,
   });
   return getSignedUrl(s3, command, { expiresIn: 300 });
+};
+
+const buildProfileImageUrl = async (keyOrUrl) => {
+  if (!keyOrUrl) return "";
+  if (keyOrUrl.startsWith("http://") || keyOrUrl.startsWith("https://")) {
+    return keyOrUrl;
+  }
+
+  const command = new GetObjectCommand({
+    Bucket: BUCKET_NAME,
+    Key: keyOrUrl,
+  });
+  return getSignedUrl(s3, command, { expiresIn: 300 });
+};
+
+const getAuthorProfileData = async (authorId) => {
+  if (!authorId) return null;
+  const [user, profile] = await Promise.all([
+    User.findById(authorId).select("name email role"),
+    AuthorProfile.findOne({ user: authorId }),
+  ]);
+
+  if (!user) return null;
+
+  const [profileImageUrl, profileImageThumbUrl] = await Promise.all([
+    buildProfileImageUrl(profile?.profileImageKey),
+    buildProfileImageUrl(profile?.profileImageThumbKey),
+  ]);
+
+  return {
+    id: user._id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    bio: profile?.bio || "",
+    profileImageKey: profile?.profileImageKey || "",
+    profileImageThumbKey: profile?.profileImageThumbKey || "",
+    profileImageThumbUrl,
+    profileImageUrl,
+    website: profile?.website || "",
+    socialLinks: profile?.socialLinks || {},
+  };
 };
 
 const getOwnedBookIds = async (userId) => {
@@ -205,20 +248,7 @@ exports.getBookById = async (req, res) => {
       isOwned = ownedIds.includes(book._id.toString());
     }
 
-    let authorProfile = null;
-    if (book.createdBy) {
-      const authorUser = await User.findById(book.createdBy).select(
-        "name email role"
-      );
-      if (authorUser) {
-        authorProfile = {
-          id: authorUser._id,
-          name: authorUser.name,
-          email: authorUser.email,
-          role: authorUser.role,
-        };
-      }
-    }
+    const authorProfile = await getAuthorProfileData(book.createdBy);
 
     const response = {
       ...book.toObject(),
@@ -314,20 +344,7 @@ exports.getBookByIdForReader = async (req, res) => {
 
     const coverUrl = await buildCoverUrl(book);
 
-    let authorProfile = null;
-    if (book.createdBy) {
-      const authorUser = await User.findById(book.createdBy).select(
-        "name email role"
-      );
-      if (authorUser) {
-        authorProfile = {
-          id: authorUser._id,
-          name: authorUser.name,
-          email: authorUser.email,
-          role: authorUser.role,
-        };
-      }
-    }
+    const authorProfile = await getAuthorProfileData(book.createdBy);
 
     const ownedBookIds = await getOwnedBookIds(req.user.id);
     const isOwned = ownedBookIds.includes(book._id.toString());
