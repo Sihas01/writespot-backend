@@ -8,7 +8,7 @@ const Transaction = require("../models/transaction.model");
 const DEFAULT_RETURN_URL = "https://ws.ebooks.lk/reader/dashboard/store";
 const DEFAULT_CANCEL_URL = "https://ws.ebooks.lk/reader/dashboard/store";
 const DEFAULT_FAILURE_URL = "https://ws.ebooks.lk/reader/dashboard/store";
-const DEFAULT_NOTIFY_URL = "https://ws.ebooks.lk/api/payments/notify";
+const DEFAULT_NOTIFY_URL = "https://api.ebooks.lk/api/payments/notify";
 const DEFAULT_CURRENCY = "LKR";
 
 const getEnvTrimmed = (key, fallback = "") => {
