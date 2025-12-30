@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const Book = require("../models/book.model");
 const User = require("../models/user");
+const AuthorProfile = require("../models/authorProfile.model");
 const Order = require("../models/order.model");
 const { S3Client, GetObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
@@ -21,6 +22,15 @@ const buildCoverUrl = async (book) => {
   const command = new GetObjectCommand({
     Bucket: BUCKET_NAME,
     Key: book.coverImagePath,
+  });
+  return getSignedUrl(s3, command, { expiresIn: 300 });
+};
+
+const buildProfileImageUrl = async (profile) => {
+  if (!profile?.profileImage) return null;
+  const command = new GetObjectCommand({
+    Bucket: BUCKET_NAME,
+    Key: profile.profileImage,
   });
   return getSignedUrl(s3, command, { expiresIn: 300 });
 };
@@ -215,15 +225,19 @@ exports.getBookById = async (req, res) => {
 
     let authorProfile = null;
     if (book.createdBy) {
-      const authorUser = await User.findById(book.createdBy).select(
-        "name email role"
-      );
+      const [authorUser, profile] = await Promise.all([
+        User.findById(book.createdBy).select("name email role"),
+        AuthorProfile.findOne({ user: book.createdBy }),
+      ]);
       if (authorUser) {
+        const profileImageUrl = await buildProfileImageUrl(profile);
         authorProfile = {
           id: authorUser._id,
           name: authorUser.name,
           email: authorUser.email,
           role: authorUser.role,
+          profileId: profile?._id,
+          profileImageUrl,
         };
       }
     }
@@ -324,15 +338,19 @@ exports.getBookByIdForReader = async (req, res) => {
 
     let authorProfile = null;
     if (book.createdBy) {
-      const authorUser = await User.findById(book.createdBy).select(
-        "name email role"
-      );
+      const [authorUser, profile] = await Promise.all([
+        User.findById(book.createdBy).select("name email role"),
+        AuthorProfile.findOne({ user: book.createdBy }),
+      ]);
       if (authorUser) {
+        const profileImageUrl = await buildProfileImageUrl(profile);
         authorProfile = {
           id: authorUser._id,
           name: authorUser.name,
           email: authorUser.email,
           role: authorUser.role,
+          profileId: profile?._id,
+          profileImageUrl,
         };
       }
     }
