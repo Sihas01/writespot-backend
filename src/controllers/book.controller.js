@@ -26,47 +26,12 @@ const buildCoverUrl = async (book) => {
   return getSignedUrl(s3, command, { expiresIn: 300 });
 };
 
-const buildProfileImageUrl = async (keyOrUrl) => {
-  if (!keyOrUrl) return "";
-  if (keyOrUrl.startsWith("http://") || keyOrUrl.startsWith("https://")) {
-    return keyOrUrl;
-  }
-
+const buildEpubUrl = async (bookId) => {
   const command = new GetObjectCommand({
     Bucket: BUCKET_NAME,
-    Key: keyOrUrl,
+    Key: `epubs/${bookId}.epub`,
   });
-  return getSignedUrl(s3, command, { expiresIn: 300 });
-};
-
-const getAuthorProfileData = async (authorId) => {
-  if (!authorId) return null;
-  const [user, profile] = await Promise.all([
-    User.findById(authorId).select("name email role"),
-    AuthorProfile.findOne({ user: authorId }),
-  ]);
-
-  if (!user) return null;
-
-  const [profileImageUrl, profileImageThumbUrl] = await Promise.all([
-    buildProfileImageUrl(profile?.profileImageKey),
-    buildProfileImageUrl(profile?.profileImageThumbKey),
-  ]);
-
-  return {
-    id: user._id,
-    name: user.name,
-    email: user.email,
-    role: user.role,
-    bio: profile?.bio || "",
-    profileImageKey: profile?.profileImageKey || "",
-    profileImageThumbKey: profile?.profileImageThumbKey || "",
-    profileImageThumbUrl,
-    profileImageUrl,
-    newsletterUrl: profile?.newsletterUrl || "",
-    website: profile?.website || "",
-    socialLinks: profile?.socialLinks || {},
-  };
+  return getSignedUrl(s3, command, { expiresIn: 3600 }); // EPUB URLs last longer (1 hour)
 };
 
 const getOwnedBookIds = async (userId) => {
@@ -360,6 +325,11 @@ exports.getBookByIdForReader = async (req, res) => {
     if (isOwned) {
       delete response.price;
       delete response.discount;
+      try {
+        response.epubUrl = await buildEpubUrl(book._id);
+      } catch (err) {
+        console.error("Error generating EPUB URL:", err);
+      }
     }
 
     res.json(response);
