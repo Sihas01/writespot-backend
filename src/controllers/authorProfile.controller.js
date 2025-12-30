@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 const AuthorProfile = require("../models/authorProfile.model");
 const User = require("../models/user");
 const Book = require("../models/book.model");
+const Follow = require("../models/follow.model");
 const { S3Client, GetObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 
@@ -85,13 +86,14 @@ exports.upsertProfile = async (req, res) => {
       return res.status(400).json({ msg: "Please verify your email first" });
     }
 
-    const { bio, profileImageKey, profileImageThumbKey, profileImageUrl, website, socialLinks = {} } = req.body || {};
+    const { bio, profileImageKey, profileImageThumbKey, profileImageUrl, website, socialLinks = {}, newsletterUrl } = req.body || {};
 
     const payload = {
       bio: bio?.trim?.() || "",
       profileImageKey: (profileImageKey || profileImageUrl || "").trim(),
       profileImageThumbKey: (profileImageThumbKey || "").trim(),
       website: website?.trim?.() || "",
+      newsletterUrl: newsletterUrl?.trim?.() || "",
       socialLinks: {
         twitter: socialLinks.twitter?.trim?.(),
         facebook: socialLinks.facebook?.trim?.(),
@@ -133,12 +135,13 @@ exports.getMyProfile = async (req, res) => {
     }
 
     const profile = await AuthorProfile.findOne({ user: userId });
+    const followersCount = await Follow.countDocuments({ followingId: userId });
     const { profileImageUrlResolved, profileImageThumbUrlResolved } = await resolveProfileImages(profile);
     const profileWithUrl = profile
       ? { ...profile.toObject(), profileImageUrlResolved, profileImageThumbUrlResolved }
       : null;
 
-    return res.json({ profile: formatProfile(user, profileWithUrl) });
+    return res.json({ profile: formatProfile(user, profileWithUrl), followersCount });
   } catch (error) {
     console.error("Get my profile error:", error);
     return res.status(500).json({ msg: "Server Error" });
@@ -169,13 +172,18 @@ exports.getPublicProfile = async (req, res) => {
       }))
     );
 
-    const { profileImageUrlResolved, profileImageThumbUrlResolved } = await resolveProfileImages(profileDoc);
+    const [counts, resolved] = await Promise.all([
+      Follow.countDocuments({ followingId: userId }),
+      resolveProfileImages(profileDoc),
+    ]);
+    const { profileImageUrlResolved, profileImageThumbUrlResolved } = resolved;
     const profileWithUrl = profileDoc
       ? { ...profileDoc.toObject(), profileImageUrlResolved, profileImageThumbUrlResolved }
       : null;
 
     return res.json({
       profile: formatProfile(user, profileWithUrl),
+      followersCount: counts,
       books: booksWithCover,
     });
   } catch (error) {

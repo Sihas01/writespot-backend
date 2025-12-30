@@ -63,6 +63,7 @@ const getAuthorProfileData = async (authorId) => {
     profileImageThumbKey: profile?.profileImageThumbKey || "",
     profileImageThumbUrl,
     profileImageUrl,
+    newsletterUrl: profile?.newsletterUrl || "",
     website: profile?.website || "",
     socialLinks: profile?.socialLinks || {},
   };

@@ -21,6 +21,7 @@ const authorProfileSchema = new mongoose.Schema(
     bio: { type: String, trim: true, default: "" },
     profileImageKey: { type: String, trim: true, default: "" },
     profileImageThumbKey: { type: String, trim: true, default: "" },
+    newsletterUrl: { type: String, trim: true, default: "" },
     website: { type: String, trim: true, default: "" },
     socialLinks: { type: socialLinksSchema, default: {} },
   },

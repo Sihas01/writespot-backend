@@ -16,6 +16,7 @@ app.use("/api/payments", require("./src/routes/payment.routes"));
 app.use("/payments", require("./src/routes/payment.routes"));
 app.use("/api/revenue", require("./src/routes/revenueRoutes"));
 app.use("/author-profiles", require("./src/routes/authorProfile.routes"));
+app.use("/", require("./src/routes/follow.routes"));
 
 
 mongoose.connect(process.env.MONGO_URI)
