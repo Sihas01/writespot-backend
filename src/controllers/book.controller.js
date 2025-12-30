@@ -25,6 +25,14 @@ const buildCoverUrl = async (book) => {
   return getSignedUrl(s3, command, { expiresIn: 300 });
 };
 
+const buildEpubUrl = async (bookId) => {
+  const command = new GetObjectCommand({
+    Bucket: BUCKET_NAME,
+    Key: `epubs/${bookId}.epub`,
+  });
+  return getSignedUrl(s3, command, { expiresIn: 3600 }); // EPUB URLs last longer (1 hour)
+};
+
 const getOwnedBookIds = async (userId) => {
   const [orders, user] = await Promise.all([
     Order.find({ user: userId, status: "COMPLETED" }).select("items"),
@@ -342,6 +350,11 @@ exports.getBookByIdForReader = async (req, res) => {
     if (isOwned) {
       delete response.price;
       delete response.discount;
+      try {
+        response.epubUrl = await buildEpubUrl(book._id);
+      } catch (err) {
+        console.error("Error generating EPUB URL:", err);
+      }
     }
 
     res.json(response);
