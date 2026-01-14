@@ -1,6 +1,7 @@
 const User = require("../models/user");
 const Book = require("../models/book.model");
 const Transaction = require("../models/transaction.model");
+const AuditLog = require("../models/auditLog.model");
 
 exports.getDashboardStats = async (req, res) => {
     try {
@@ -73,8 +74,16 @@ exports.deleteUser = async (req, res) => {
         }
 
         await User.findByIdAndDelete(id);
-        // Optionally: Cascade delete books, transactions, etc.
-        // For now, we will keep it simple.
+
+        // Log audit
+        await AuditLog.create({
+            adminId: req.user.id,
+            action: "DELETE_USER",
+            targetType: "User",
+            targetId: id,
+            targetName: user.name,
+            details: `Deleted user with email: ${user.email}`
+        });
 
         res.json({ message: "User deleted successfully" });
     } catch (error) {
@@ -117,13 +126,54 @@ exports.getAllBooks = async (req, res) => {
 exports.deleteBook = async (req, res) => {
     try {
         const { id } = req.params;
-        const book = await Book.findByIdAndDelete(id);
+        const book = await Book.findById(id);
 
         if (!book) return res.status(404).json({ message: "Book not found" });
+
+        await Book.findByIdAndDelete(id);
+
+        // Log audit
+        await AuditLog.create({
+            adminId: req.user.id,
+            action: "DELETE_BOOK",
+            targetType: "Book",
+            targetId: id,
+            targetName: book.title,
+            details: `Deleted book by ID: ${id}`
+        });
 
         res.json({ message: "Book deleted successfully" });
     } catch (error) {
         console.error("deleteBook error:", error);
         res.status(500).json({ message: "Failed to delete book" });
+    }
+};
+
+exports.getAuditLogs = async (req, res) => {
+    try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const skip = (page - 1) * limit;
+
+        const [logs, total] = await Promise.all([
+            AuditLog.find()
+                .populate("adminId", "name email")
+                .skip(skip)
+                .limit(limit)
+                .sort({ createdAt: -1 }),
+            AuditLog.countDocuments(),
+        ]);
+
+        res.json({
+            data: logs,
+            pagination: {
+                total,
+                page,
+                pages: Math.ceil(total / limit),
+            },
+        });
+    } catch (error) {
+        console.error("getAuditLogs error:", error);
+        res.status(500).json({ message: "Failed to fetch audit logs" });
     }
 };

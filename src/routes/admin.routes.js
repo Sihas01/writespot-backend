@@ -11,5 +11,6 @@ router.get("/users", adminController.getAllUsers);
 router.delete("/users/:id", adminController.deleteUser);
 router.get("/books", adminController.getAllBooks);
 router.delete("/books/:id", adminController.deleteBook);
+router.get("/audit-logs", adminController.getAuditLogs);
 
 module.exports = router;
