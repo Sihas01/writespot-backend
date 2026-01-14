@@ -20,6 +20,7 @@ router.get("/library", auth, role(["reader"]), book.getMyLibrary);
 router.get("/:id/reader", auth, role(["reader"]), book.getBookByIdForReader);
 router.get("/:id", optionalAuth, book.getBookById);
 router.put("/:id", auth, book.updateBook);
+router.post("/:id/report", auth, book.reportBook);
 router.delete("/:id", auth, book.deleteBook);
 
 module.exports = router;

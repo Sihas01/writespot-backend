@@ -20,7 +20,12 @@ const bookSchema = new mongoose.Schema({
     manuscriptPath: String,
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     createdAt: { type: Date, default: Date.now },
-    drmEnabled: { type: Boolean, default: false }
+    drmEnabled: { type: Boolean, default: false },
+    reports: [{
+        userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        reason: String,
+        createdAt: { type: Date, default: Date.now }
+    }]
 });
 
 module.exports = mongoose.model("Book", bookSchema);

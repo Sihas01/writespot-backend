@@ -80,9 +80,9 @@ exports.addBook = async (req, res) => {
       discount,
       isbn,
       fileFormat,
-      coverImage,   
+      coverImage,
       manuscript,
-      drmEnabled   
+      drmEnabled
     } = req.body;
 
     // Validate required fields
@@ -102,8 +102,8 @@ exports.addBook = async (req, res) => {
       discount: Number(discount) || 0,
       isbn,
       fileFormat,
-      coverImagePath: coverImage,    
-      manuscriptPath: manuscript,    
+      coverImagePath: coverImage,
+      manuscriptPath: manuscript,
       drmEnabled,
       createdBy: req.user.id
     });
@@ -114,7 +114,7 @@ exports.addBook = async (req, res) => {
       manuscriptKey: manuscript,
       language: language,
     })
-    .catch(err => console.error("EPUB conversion request failed:", err.message));
+      .catch(err => console.error("EPUB conversion request failed:", err.message));
 
     res.status(201).json({ message: "Book added successfully", book });
   } catch (error) {
@@ -451,5 +451,32 @@ exports.deleteBook = async (req, res) => {
   } catch (error) {
     console.error("Delete book error:", error);
     res.status(500).json({ message: "Something went wrong while deleting the book.", error: error.message });
+  }
+};
+
+// Report a book
+exports.reportBook = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    if (!reason) {
+      return res.status(400).json({ message: "Reason is required" });
+    }
+
+    const book = await Book.findById(id);
+    if (!book) return res.status(404).json({ message: "Book not found" });
+
+    book.reports.push({
+      userId: req.user.id,
+      reason,
+      createdAt: new Date()
+    });
+
+    await book.save();
+    res.json({ message: "Report submitted successfully" });
+  } catch (error) {
+    console.error("Report book error:", error);
+    res.status(500).json({ message: "Failed to submit report" });
   }
 };
