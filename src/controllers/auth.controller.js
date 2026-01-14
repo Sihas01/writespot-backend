@@ -51,7 +51,13 @@ module.exports = {
       }
 
       const normalizedEmail = email.toLowerCase().trim();
-      const backendRole = role === "reader" ? "reader" : "author";
+
+
+      // Strict role validation
+      if (role !== "reader" && role !== "author") {
+        return res.status(400).json({ msg: "Invalid role. Only 'reader' or 'author' allowed." });
+      }
+      const backendRole = role;
 
       // Check if the email already exists for the same role
       const existingUserWithRole = await User.findOne({ email: normalizedEmail, role: backendRole });
@@ -117,8 +123,8 @@ module.exports = {
       }
 
       const normalizedEmail = email.toLowerCase().trim();
-      const expectedRole = role === "reader" ? "reader" : "author";
-      
+      const expectedRole = role === "reader" ? "reader" : (role === "admin" ? "admin" : "author");
+
       // Find user with specific email and role
       const user = await User.findOne({ email: normalizedEmail, role: expectedRole });
 
@@ -171,7 +177,7 @@ module.exports = {
           id: user._id,
           name: user.name,
           email: user.email,
-          role: user.role === "reader" ? "reader" : "author",
+          role: user.role,
         },
       });
     } catch (err) {
@@ -184,17 +190,17 @@ module.exports = {
   verifyOtp: async (req, res) => {
     try {
       const { email, otp, role } = req.body;
-      
+
       if (!role) {
         return res.status(400).json({ msg: "Role is required" });
       }
 
       const normalizedEmail = email.toLowerCase();
       const backendRole = role === "reader" ? "reader" : "author";
-      
+
       // Find user with specific email and role
       const user = await User.findOne({ email: normalizedEmail, role: backendRole });
-      
+
       if (!user) return res.status(400).json({ msg: "User not found" });
 
       if (String(user.otp) !== String(otp).trim()) return res.status(400).json({ msg: "Incorrect OTP" });
@@ -217,17 +223,17 @@ module.exports = {
   resendOtp: async (req, res) => {
     try {
       const { email, role } = req.body;
-      
+
       if (!role) {
         return res.status(400).json({ msg: "Role is required" });
       }
 
       const normalizedEmail = email.toLowerCase();
       const backendRole = role === "reader" ? "reader" : "author";
-      
+
       // Find user with specific email and role
       const user = await User.findOne({ email: normalizedEmail, role: backendRole });
-      
+
       if (!user) return res.status(400).json({ msg: "User not found" });
 
       const otp = generateOTP();
@@ -261,13 +267,13 @@ module.exports = {
   forgotPassword: async (req, res) => {
     try {
       const { email, role } = req.body;
-      
+
       if (!email) return res.status(400).json({ msg: "Email is required" });
       if (!role) return res.status(400).json({ msg: "Role is required" });
 
       const normalizedEmail = email.toLowerCase().trim();
       const backendRole = role === "reader" ? "reader" : "author";
-      
+
       // Find user with specific email and role
       const user = await User.findOne({ email: normalizedEmail, role: backendRole });
 
