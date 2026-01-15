@@ -3,8 +3,11 @@ const Book = require("../models/book.model");
 const User = require("../models/user");
 const AuthorProfile = require("../models/authorProfile.model");
 const Order = require("../models/order.model");
+const Review = require("../models/review.model");
+const NewsletterSubscription = require("../models/newsletterSubscription.model");
 const { S3Client, GetObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
+const { sendNewBookNotification } = require("../services/emailService");
 
 // AWS S3 Configuration
 const BUCKET_NAME = "writespot-uploads";
@@ -64,6 +67,19 @@ const getOwnedBookIds = async (userId) => {
   return Array.from(owned);
 };
 
+// Calculate book rating from reviews
+const calculateBookRating = async (bookId) => {
+  const reviews = await Review.find({ bookId });
+  if (reviews.length === 0) {
+    return { averageRating: 0, reviewCount: 0 };
+  }
+
+  const totalRating = reviews.reduce((sum, review) => sum + review.rating, 0);
+  const averageRating = Math.round((totalRating / reviews.length) * 10) / 10; // Round to 1 decimal place
+
+  return { averageRating, reviewCount: reviews.length };
+};
+
 // Add a new book
 exports.addBook = async (req, res) => {
   try {
@@ -115,6 +131,53 @@ exports.addBook = async (req, res) => {
       language: language,
     })
       .catch(err => console.error("EPUB conversion request failed:", err.message));
+
+    // Send email notifications to subscribers (non-blocking)
+    (async () => {
+      try {
+        // Get author profile
+        const authorProfile = await AuthorProfile.findOne({ user: req.user.id })
+          .populate("user", "name email");
+
+        if (authorProfile) {
+          // Get all active subscribers
+          const subscriptions = await NewsletterSubscription.find({
+            authorId: authorProfile._id,
+            isActive: true,
+          }).populate("subscriberId", "name email");
+
+          if (subscriptions.length > 0) {
+            // Get book cover URL for email
+            const coverUrl = await buildCoverUrl(book);
+
+            // Format subscribers for email service
+            const subscribers = subscriptions.map((sub) => ({
+              unsubscribeToken: sub.unsubscribeToken,
+              subscriberEmail: sub.subscriberId?.email || "",
+              subscriberName: sub.subscriberId?.name || "Subscriber",
+            }));
+
+            // Prepare book object with cover URL
+            const bookWithCover = {
+              ...book.toObject(),
+              coverUrl,
+            };
+
+            // Send emails (non-blocking, errors logged but don't fail book creation)
+            sendNewBookNotification(bookWithCover, authorProfile, subscribers)
+              .then((result) => {
+                console.log(`Newsletter emails sent: ${result.sent} successful, ${result.failed} failed`);
+              })
+              .catch((err) => {
+                console.error("Error sending newsletter emails:", err);
+              });
+          }
+        }
+      } catch (err) {
+        console.error("Error preparing newsletter emails:", err);
+        // Don't fail book creation if email preparation fails
+      }
+    })();
 
     res.status(201).json({ message: "Book added successfully", book });
   } catch (error) {
@@ -218,10 +281,22 @@ exports.getBookById = async (req, res) => {
     const coverUrl = await buildCoverUrl(book);
 
     let isOwned = false;
+    let canReview = false;
+    let userReview = null;
+    
     if (req.user?.id) {
       const ownedIds = await getOwnedBookIds(req.user.id);
       isOwned = ownedIds.includes(book._id.toString());
+      
+      // Check if user can review (has purchased and hasn't reviewed yet)
+      if (isOwned) {
+        userReview = await Review.findOne({ bookId: book._id, userId: req.user.id });
+        canReview = !userReview;
+      }
     }
+
+    // Get review statistics
+    const reviewStats = await calculateBookRating(book._id);
 
     let authorProfile = null;
     if (book.createdBy) {
@@ -247,6 +322,16 @@ exports.getBookById = async (req, res) => {
       coverUrl,
       authorProfile,
       isOwned,
+      averageRating: reviewStats.averageRating,
+      reviewCount: reviewStats.reviewCount,
+      canReview,
+      userReview: userReview ? {
+        _id: userReview._id,
+        rating: userReview.rating,
+        reviewText: userReview.reviewText,
+        createdAt: userReview.createdAt,
+        updatedAt: userReview.updatedAt,
+      } : null,
     };
 
     res.json(response);
@@ -358,11 +443,32 @@ exports.getBookByIdForReader = async (req, res) => {
     const ownedBookIds = await getOwnedBookIds(req.user.id);
     const isOwned = ownedBookIds.includes(book._id.toString());
 
+    // Get review statistics
+    const reviewStats = await calculateBookRating(book._id);
+
+    // Check if user can review (has purchased and hasn't reviewed yet)
+    let canReview = false;
+    let userReview = null;
+    if (isOwned) {
+      userReview = await Review.findOne({ bookId: book._id, userId: req.user.id });
+      canReview = !userReview;
+    }
+
     const response = {
       ...book.toObject(),
       coverUrl,
       authorProfile,
       isOwned,
+      averageRating: reviewStats.averageRating,
+      reviewCount: reviewStats.reviewCount,
+      canReview,
+      userReview: userReview ? {
+        _id: userReview._id,
+        rating: userReview.rating,
+        reviewText: userReview.reviewText,
+        createdAt: userReview.createdAt,
+        updatedAt: userReview.updatedAt,
+      } : null,
     };
 
     if (isOwned) {

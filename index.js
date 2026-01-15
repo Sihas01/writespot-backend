@@ -19,6 +19,9 @@ app.use("/api/payments", require("./src/routes/payment.routes"));
 app.use("/payments", require("./src/routes/payment.routes"));
 app.use("/api/revenue", require("./src/routes/revenueRoutes"));
 
+app.use("/api", require("./src/routes/review.routes"));
+app.use("/api/newsletter", require("./src/routes/newsletter.routes"));
+
 
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log("DB Connected"))

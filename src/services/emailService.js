@@ -1,0 +1,222 @@
+const nodemailer = require("nodemailer");
+require("dotenv").config();
+
+// Nodemailer transporter
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: process.env.EMAIL,
+    pass: process.env.EMAIL_PASS,
+  },
+});
+
+// Allow local dev without working SMTP creds.
+const EMAIL_DEV_MODE = String(process.env.EMAIL_DEV_MODE).toLowerCase() === "true";
+
+const sendMailSafe = async (options) => {
+  if (EMAIL_DEV_MODE) {
+    console.log("[DEV_EMAIL_MODE] Email send skipped; payload:", {
+      to: options.to,
+      subject: options.subject,
+      preview: options.html ? options.html.slice(0, 200) : options.text,
+    });
+    return;
+  }
+  return transporter.sendMail(options);
+};
+
+// Generate unsubscribe link
+const generateUnsubscribeLink = (token) => {
+  const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+  return `${frontendUrl}/unsubscribe/${token}`;
+};
+
+// Send email in batches with delay
+const sendBatchEmails = async (emailPromises, batchSize = 50, delayMs = 1000) => {
+  const results = [];
+  for (let i = 0; i < emailPromises.length; i += batchSize) {
+    const batch = emailPromises.slice(i, i + batchSize);
+    const batchResults = await Promise.allSettled(
+      batch.map((emailPromise) => emailPromise)
+    );
+    results.push(...batchResults);
+
+    // Add delay between batches (except for the last batch)
+    if (i + batchSize < emailPromises.length) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  return results;
+};
+
+// Send new book notification to subscribers
+const sendNewBookNotification = async (book, author, subscribers) => {
+  if (!subscribers || subscribers.length === 0) {
+    return { sent: 0, failed: 0 };
+  }
+
+  const authorName = author.user?.name || `${author.author?.firstName || ""} ${author.author?.lastName || ""}`.trim() || "Author";
+  const bookTitle = book.title || "New Book";
+  const bookDescription = book.description || "Check out this new release!";
+  const bookUrl = `${process.env.FRONTEND_URL || "http://localhost:5173"}/reader/dashboard/store/${book._id}`;
+  const coverImageUrl = book.coverUrl || "";
+
+  const emailPromises = subscribers.map(async (subscription) => {
+    const unsubscribeLink = generateUnsubscribeLink(subscription.unsubscribeToken);
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        </head>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <div style="background: #f0fdf4; padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
+            <h1 style="color: #16a34a; font-size: 32px; margin: 0;">WriteSpot</h1>
+            <p style="color: #666; margin: 10px 0 0 0;">New Book Release</p>
+          </div>
+          
+          <div style="background: white; padding: 30px; border: 1px solid #e5e7eb; border-top: none;">
+            <h2 style="color: #1f2937; margin-top: 0;">${authorName} has published a new book!</h2>
+            
+            ${coverImageUrl ? `
+              <div style="text-align: center; margin: 20px 0;">
+                <img src="${coverImageUrl}" alt="${bookTitle}" style="max-width: 200px; height: auto; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);" />
+              </div>
+            ` : ""}
+            
+            <h3 style="color: #374151; font-size: 24px; margin: 20px 0 10px 0;">${bookTitle}</h3>
+            
+            ${book.subtitle ? `<p style="color: #6b7280; font-style: italic; margin: 0 0 15px 0;">${book.subtitle}</p>` : ""}
+            
+            <p style="color: #4b5563; margin: 15px 0;">${bookDescription}</p>
+            
+            ${book.price !== undefined && book.price !== null ? `
+              <p style="font-size: 20px; font-weight: bold; color: #059669; margin: 20px 0;">
+                ${book.price > 0 ? `LKR ${book.price}` : "Free"}
+              </p>
+            ` : ""}
+            
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${bookUrl}" style="display: inline-block; background: #16a34a; color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;">
+                View Book
+              </a>
+            </div>
+          </div>
+          
+          <div style="background: #f9fafb; padding: 20px; text-align: center; border-radius: 0 0 10px 10px; border: 1px solid #e5e7eb; border-top: none;">
+            <p style="color: #6b7280; font-size: 12px; margin: 0;">
+              You're receiving this email because you subscribed to ${authorName}'s newsletter.
+            </p>
+            <p style="color: #6b7280; font-size: 12px; margin: 10px 0 0 0;">
+              <a href="${unsubscribeLink}" style="color: #6b7280; text-decoration: underline;">Unsubscribe</a>
+            </p>
+          </div>
+        </body>
+      </html>
+    `;
+
+    const textContent = `
+WriteSpot - New Book Release
+
+${authorName} has published a new book!
+
+${bookTitle}
+${book.subtitle ? book.subtitle + "\n" : ""}
+
+${bookDescription}
+
+${book.price !== undefined && book.price !== null ? `Price: ${book.price > 0 ? `LKR ${book.price}` : "Free"}\n` : ""}
+
+View the book: ${bookUrl}
+
+---
+You're receiving this email because you subscribed to ${authorName}'s newsletter.
+Unsubscribe: ${unsubscribeLink}
+    `.trim();
+
+    return sendMailSafe({
+      from: `"WriteSpot" <${process.env.EMAIL}>`,
+      to: subscription.subscriberEmail,
+      subject: `New Book Release: ${bookTitle} by ${authorName}`,
+      html: htmlContent,
+      text: textContent,
+    });
+  });
+
+  const results = await sendBatchEmails(emailPromises);
+  const sent = results.filter((r) => r.status === "fulfilled").length;
+  const failed = results.filter((r) => r.status === "rejected").length;
+
+  if (failed > 0) {
+    console.error(`Failed to send ${failed} newsletter emails`);
+  }
+
+  return { sent, failed };
+};
+
+// Send newsletter email (for future use)
+const sendNewsletterEmail = async (author, subscribers, content) => {
+  if (!subscribers || subscribers.length === 0) {
+    return { sent: 0, failed: 0 };
+  }
+
+  const authorName = author.user?.name || "Author";
+  const unsubscribeLink = generateUnsubscribeLink(""); // Token should be per subscription
+
+  const emailPromises = subscribers.map(async (subscription) => {
+    const unsubscribeLink = generateUnsubscribeLink(subscription.unsubscribeToken);
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        </head>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <div style="background: #f0fdf4; padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
+            <h1 style="color: #16a34a; font-size: 32px; margin: 0;">WriteSpot</h1>
+            <p style="color: #666; margin: 10px 0 0 0;">Newsletter from ${authorName}</p>
+          </div>
+          
+          <div style="background: white; padding: 30px; border: 1px solid #e5e7eb; border-top: none;">
+            ${content}
+          </div>
+          
+          <div style="background: #f9fafb; padding: 20px; text-align: center; border-radius: 0 0 10px 10px; border: 1px solid #e5e7eb; border-top: none;">
+            <p style="color: #6b7280; font-size: 12px; margin: 0;">
+              You're receiving this email because you subscribed to ${authorName}'s newsletter.
+            </p>
+            <p style="color: #6b7280; font-size: 12px; margin: 10px 0 0 0;">
+              <a href="${unsubscribeLink}" style="color: #6b7280; text-decoration: underline;">Unsubscribe</a>
+            </p>
+          </div>
+        </body>
+      </html>
+    `;
+
+    return sendMailSafe({
+      from: `"WriteSpot" <${process.env.EMAIL}>`,
+      to: subscription.subscriberEmail,
+      subject: `Newsletter from ${authorName}`,
+      html: htmlContent,
+      text: content,
+    });
+  });
+
+  const results = await sendBatchEmails(emailPromises);
+  const sent = results.filter((r) => r.status === "fulfilled").length;
+  const failed = results.filter((r) => r.status === "rejected").length;
+
+  return { sent, failed };
+};
+
+module.exports = {
+  sendMailSafe,
+  generateUnsubscribeLink,
+  sendNewBookNotification,
+  sendNewsletterEmail,
+  sendBatchEmails,
+};
