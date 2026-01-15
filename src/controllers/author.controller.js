@@ -3,6 +3,7 @@ const { S3Client, GetObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 const AuthorProfile = require("../models/authorProfile.model");
 const Follow = require("../models/follow.model");
+const NewsletterSubscription = require("../models/newsletterSubscription.model");
 const User = require("../models/user");
 const Book = require("../models/book.model");
 
@@ -163,12 +164,23 @@ module.exports = {
         return res.status(404).json({ msg: "Author profile not found" });
       }
 
-      const [profileImageUrl, books, isFollowing] = await Promise.all([
+      const [profileImageUrl, books, isFollowing, isSubscribed, subscribersCount] = await Promise.all([
         buildProfileImageUrl(profile),
         Book.find({ createdBy: profile.user }).lean(),
         req.user?.id
           ? Follow.exists({ followerId: req.user.id, followingId: id })
           : null,
+        req.user?.id
+          ? NewsletterSubscription.exists({
+              subscriberId: req.user.id,
+              authorId: id,
+              isActive: true,
+            })
+          : null,
+        NewsletterSubscription.countDocuments({
+          authorId: id,
+          isActive: true,
+        }),
       ]);
 
       const booksWithCovers = await Promise.all(
@@ -196,6 +208,8 @@ module.exports = {
         },
         books: booksWithCovers,
         isFollowing: Boolean(isFollowing),
+        isSubscribed: Boolean(isSubscribed),
+        subscribersCount: subscribersCount || 0,
       });
     } catch (err) {
       console.error("Get public profile error:", err);
