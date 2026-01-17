@@ -1,5 +1,5 @@
 const mongoose = require("mongoose");
-const Review = require("../models/review.model");
+const Review = require("../models/reviewV2.model"); // Switch to V2
 const Book = require("../models/book.model");
 const User = require("../models/user");
 const Order = require("../models/order.model");
@@ -72,24 +72,24 @@ exports.createOrUpdateReview = async (req, res) => {
       return res.status(404).json({ message: "Book not found" });
     }
 
-    // Find existing review or create new one
-    let review = await Review.findOne({ bookId, userId });
-
-    if (review) {
-      // Update existing review
-      review.rating = rating;
-      review.reviewText = reviewText || null;
-      review.updatedAt = new Date();
-      await review.save();
-    } else {
-      // Create new review
-      review = await Review.create({
-        bookId,
-        userId,
+    // Use findOneAndUpdate with upsert in the NEW collection (V2)
+    // This is a fresh collection, so no index corruption issues should exist.
+    const review = await Review.findOneAndUpdate(
+      {
+        bookId: new mongoose.Types.ObjectId(bookId),
+        userId: new mongoose.Types.ObjectId(userId)
+      },
+      {
         rating,
-        reviewText: reviewText || null,
-      });
-    }
+        reviewText: reviewText || null
+      },
+      {
+        new: true, // Return the modified document
+        upsert: true, // Create if doesn't exist
+        setDefaultsOnInsert: true,
+        runValidators: true
+      }
+    );
 
     // Update book rating
     const { averageRating, reviewCount } = await updateBookRating(bookId);
@@ -97,8 +97,8 @@ exports.createOrUpdateReview = async (req, res) => {
     // Populate user info for response
     await review.populate("userId", "name email");
 
-    res.status(review.updatedAt ? 200 : 201).json({
-      message: review.updatedAt ? "Review updated successfully" : "Review created successfully",
+    res.status(200).json({
+      message: "Review saved successfully",
       review: {
         _id: review._id,
         bookId: review.bookId,
@@ -118,9 +118,6 @@ exports.createOrUpdateReview = async (req, res) => {
     });
   } catch (error) {
     console.error("Create/update review error:", error);
-    if (error.code === 11000) {
-      return res.status(400).json({ message: "You have already reviewed this book" });
-    }
     res.status(500).json({ message: "Something went wrong while saving the review" });
   }
 };
@@ -179,25 +176,25 @@ exports.getBookReviews = async (req, res) => {
 
     const formattedReviews = Array.isArray(reviews)
       ? reviews.map((review) => {
-          const helpfulVotes = review.helpfulVotes || [];
-          const hasVoted = currentUserId
-            ? helpfulVotes.some((id) => id.toString() === currentUserId)
-            : false;
+        const helpfulVotes = review.helpfulVotes || [];
+        const hasVoted = currentUserId
+          ? helpfulVotes.some((id) => id.toString() === currentUserId)
+          : false;
 
-          return {
-            _id: review._id,
-            bookId: review.bookId,
-            userId: review.userId?._id || review.userId,
-            reviewerName: review.userId?.name || "Anonymous",
-            rating: review.rating,
-            reviewText: review.reviewText,
-            helpfulVotes: helpfulVotes,
-            helpfulCount: helpfulVotes.length,
-            hasVoted,
-            createdAt: review.createdAt,
-            updatedAt: review.updatedAt,
-          };
-        })
+        return {
+          _id: review._id,
+          bookId: review.bookId,
+          userId: review.userId?._id || review.userId,
+          reviewerName: review.userId?.name || "Anonymous",
+          rating: review.rating,
+          reviewText: review.reviewText,
+          helpfulVotes: helpfulVotes,
+          helpfulCount: helpfulVotes.length,
+          hasVoted,
+          createdAt: review.createdAt,
+          updatedAt: review.updatedAt,
+        };
+      })
       : [];
 
     // Don't show flagged reviews to regular users
