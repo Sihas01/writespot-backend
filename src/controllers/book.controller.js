@@ -3,7 +3,7 @@ const Book = require("../models/book.model");
 const User = require("../models/user");
 const AuthorProfile = require("../models/authorProfile.model");
 const Order = require("../models/order.model");
-const Review = require("../models/review.model");
+const Review = require("../models/reviewV2.model");
 const NewsletterSubscription = require("../models/newsletterSubscription.model");
 const { S3Client, GetObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
@@ -283,11 +283,11 @@ exports.getBookById = async (req, res) => {
     let isOwned = false;
     let canReview = false;
     let userReview = null;
-    
+
     if (req.user?.id) {
       const ownedIds = await getOwnedBookIds(req.user.id);
       isOwned = ownedIds.includes(book._id.toString());
-      
+
       // Check if user can review (has purchased and hasn't reviewed yet)
       if (isOwned) {
         userReview = await Review.findOne({ bookId: book._id, userId: req.user.id });
