@@ -308,9 +308,14 @@ exports.getBookById = async (req, res) => {
     let canReview = false;
     let userReview = null;
 
+    let isLiked = false;
     if (req.user?.id) {
-      const ownedIds = await getOwnedBookIds(req.user.id);
+      const [ownedIds, like] = await Promise.all([
+        getOwnedBookIds(req.user.id),
+        Like.findOne({ userId: req.user.id, bookId: book._id })
+      ]);
       isOwned = ownedIds.includes(book._id.toString());
+      isLiked = !!like;
 
       // Check if user can review (has purchased and hasn't reviewed yet)
       if (isOwned) {
@@ -346,6 +351,7 @@ exports.getBookById = async (req, res) => {
       coverUrl,
       authorProfile,
       isOwned,
+      isLiked,
       averageRating: reviewStats.averageRating,
       reviewCount: reviewStats.reviewCount,
       canReview,
