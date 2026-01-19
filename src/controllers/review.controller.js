@@ -295,8 +295,25 @@ exports.reportReview = async (req, res) => {
     // Add report
     review.reportedBy.push(userObjectId);
 
+    const reportCount = review.reportedBy.length;
+
+    // Check for auto-deletion threshold (10 reports)
+    if (reportCount >= 10) {
+      const bookId = review.bookId;
+      await Review.findByIdAndDelete(review._id);
+
+      // Recalculate book rating after deletion
+      const { averageRating, reviewCount } = await updateBookRating(bookId);
+
+      return res.json({
+        message: "Review automatically deleted due to high report volume",
+        deleted: true,
+        bookRating: { averageRating, reviewCount }
+      });
+    }
+
     // Flag if threshold reached (3+ reports)
-    if (review.reportedBy.length >= 3) {
+    if (reportCount >= 3) {
       review.isFlagged = true;
     }
 
@@ -305,7 +322,7 @@ exports.reportReview = async (req, res) => {
     res.json({
       message: "Review reported successfully",
       isFlagged: review.isFlagged,
-      reportCount: review.reportedBy.length,
+      reportCount: reportCount,
     });
   } catch (error) {
     console.error("Report review error:", error);
