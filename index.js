@@ -8,6 +8,7 @@ app.use(cors());
 app.use(express.json());
 
 app.use('/api/auth', require('./src/routes/auth.routes'));
+app.use('/auth', require('./src/routes/auth.routes'));
 app.use("/api/author", require("./src/routes/author.routes"));
 app.use("/api/authors", require("./src/routes/author.routes"));
 
@@ -21,6 +22,7 @@ app.use("/api/revenue", require("./src/routes/revenueRoutes"));
 
 app.use("/api", require("./src/routes/review.routes"));
 app.use("/api/newsletter", require("./src/routes/newsletter.routes"));
+app.use("/api/likes", require("./src/routes/like.routes"));
 
 
 mongoose.connect(process.env.MONGO_URI)

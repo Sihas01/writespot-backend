@@ -3,6 +3,27 @@ const NewsletterSubscription = require("../models/newsletterSubscription.model")
 const AuthorProfile = require("../models/authorProfile.model");
 const User = require("../models/user");
 const { sendNewBookNotification } = require("../services/emailService");
+const { S3Client, GetObjectCommand } = require("@aws-sdk/client-s3");
+const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
+
+const BUCKET_NAME = "writespot-uploads";
+
+const s3 = new S3Client({
+  region: "us-east-1",
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  },
+});
+
+const buildProfileImageUrl = async (profile) => {
+  if (!profile?.profileImage) return null;
+  const command = new GetObjectCommand({
+    Bucket: BUCKET_NAME,
+    Key: profile.profileImage,
+  });
+  return getSignedUrl(s3, command, { expiresIn: 300 });
+};
 
 // Subscribe to author's newsletter
 exports.subscribeToAuthor = async (req, res) => {
@@ -171,13 +192,16 @@ exports.getUserSubscriptions = async (req, res) => {
       })
       .sort({ subscribedAt: -1 });
 
-    const formattedSubscriptions = subscriptions.map((sub) => ({
-      _id: sub._id,
-      authorId: sub.authorId._id,
-      authorName: sub.authorId.user?.name || "Unknown Author",
-      authorEmail: sub.authorId.user?.email || "",
-      subscribedAt: sub.subscribedAt,
-      profileImage: sub.authorId.profileImage || null,
+    const formattedSubscriptions = await Promise.all(subscriptions.map(async (sub) => {
+      const profileImageUrl = await buildProfileImageUrl(sub.authorId);
+      return {
+        _id: sub._id,
+        authorId: sub.authorId._id,
+        authorName: sub.authorId.user?.name || "Unknown Author",
+        authorEmail: sub.authorId.user?.email || "",
+        subscribedAt: sub.subscribedAt,
+        profileImage: profileImageUrl,
+      };
     }));
 
     res.json({

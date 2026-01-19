@@ -15,6 +15,7 @@ router.get("/reset-password/:token", (req, res) => {
   res.redirect(`${process.env.API}/reset-password/${token}`);
 });
 router.post("/reset-password/:token", authController.resetPassword);
+router.put("/preferences", auth, authController.updatePreferences);
 
 
 

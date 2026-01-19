@@ -178,10 +178,37 @@ module.exports = {
           name: user.name,
           email: user.email,
           role: user.role,
+          preferredGenres: user.preferredGenres || [],
         },
       });
     } catch (err) {
       console.error("Login error:", err.message);
+      res.status(500).json({ msg: "Server Error" });
+    }
+  },
+
+  // ==================== UPDATE PREFERENCES ====================
+  updatePreferences: async (req, res) => {
+    try {
+      const { preferredGenres } = req.body;
+      const userId = req.user.id;
+      console.log(`DEBUG: Updating preferences for user: ${userId}`, preferredGenres);
+
+      const user = await User.findById(userId);
+      if (!user) return res.status(404).json({ msg: "User not found" });
+
+      if (preferredGenres) {
+        user.preferredGenres = preferredGenres;
+      }
+
+      await user.save();
+
+      res.json({
+        msg: "Preferences updated",
+        preferredGenres: user.preferredGenres
+      });
+    } catch (err) {
+      console.error("Update preferences error:", err);
       res.status(500).json({ msg: "Server Error" });
     }
   },

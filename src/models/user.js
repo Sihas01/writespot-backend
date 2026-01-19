@@ -48,6 +48,16 @@ const UserSchema = new mongoose.Schema(
       type: Date,
       default: null
     },
+    preferredGenres: {
+      type: [String],
+      default: []
+    },
+    readingProgress: [{
+      bookId: { type: mongoose.Schema.Types.ObjectId, ref: 'Book' },
+      cfi: String, // Location identifier from Epub.js
+      percentage: Number,
+      timestamp: { type: Date, default: Date.now }
+    }],
     // NEW FIELDS FOR QA REQUIREMENTS
     loginAttempts: {
       type: Number,

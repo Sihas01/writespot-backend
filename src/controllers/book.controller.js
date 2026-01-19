@@ -4,6 +4,7 @@ const User = require("../models/user");
 const AuthorProfile = require("../models/authorProfile.model");
 const Order = require("../models/order.model");
 const Review = require("../models/reviewV2.model");
+const Like = require("../models/like.model");
 const NewsletterSubscription = require("../models/newsletterSubscription.model");
 const { S3Client, GetObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
@@ -198,6 +199,12 @@ exports.getAllBooks = async (req, res) => {
       limit = 10,
     } = req.query;
 
+    // DEBUG: Check auth
+    console.log("getAllBooks Auth Debug:", {
+      hasHeader: !!req.header("Authorization"),
+      userId: req.user?.id
+    });
+
     const escapeRegExp = (value) =>
       String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const normalizeList = (value) => {
@@ -241,20 +248,37 @@ exports.getAllBooks = async (req, res) => {
       ? new Set(await getOwnedBookIds(req.user.id))
       : null;
 
+    const likedBookIds = req.user?.id
+      ? new Set((await Like.find({ userId: new mongoose.Types.ObjectId(req.user.id) }).select("bookId")).map(l => l.bookId.toString()))
+      : new Set();
+
+    console.log(`DEBUG: User ${req.user?.id} has liked books:`, Array.from(likedBookIds));
+
     const booksWithCoverUrls = await Promise.all(
       books.map(async (book) => {
         const coverUrl = await buildCoverUrl(book);
+        const { averageRating } = await calculateBookRating(book._id);
         return {
           ...book.toObject(),
           coverUrl,
+          averageRating,
           isOwned: ownedIds
             ? ownedIds.has(book._id.toString())
             : false,
+          isLiked: likedBookIds.has(book._id.toString()),
         };
       })
     );
 
-    res.json(booksWithCoverUrls);
+    res.json({
+      books: booksWithCoverUrls,
+      debug: {
+        authHeader: !!req.header("Authorization"),
+        userId: req.user?.id || "guest",
+        likedCount: likedBookIds.size,
+        likedIds: Array.from(likedBookIds)
+      }
+    });
   } catch (err) {
     console.error("Get all books error:", err);
     res.status(500).json({
@@ -284,9 +308,14 @@ exports.getBookById = async (req, res) => {
     let canReview = false;
     let userReview = null;
 
+    let isLiked = false;
     if (req.user?.id) {
-      const ownedIds = await getOwnedBookIds(req.user.id);
+      const [ownedIds, like] = await Promise.all([
+        getOwnedBookIds(req.user.id),
+        Like.findOne({ userId: req.user.id, bookId: book._id })
+      ]);
       isOwned = ownedIds.includes(book._id.toString());
+      isLiked = !!like;
 
       // Check if user can review (has purchased and hasn't reviewed yet)
       if (isOwned) {
@@ -322,6 +351,7 @@ exports.getBookById = async (req, res) => {
       coverUrl,
       authorProfile,
       isOwned,
+      isLiked,
       averageRating: reviewStats.averageRating,
       reviewCount: reviewStats.reviewCount,
       canReview,
@@ -449,9 +479,18 @@ exports.getBookByIdForReader = async (req, res) => {
     // Check if user can review (has purchased and hasn't reviewed yet)
     let canReview = false;
     let userReview = null;
+    let isLiked = false;
     if (isOwned) {
       userReview = await Review.findOne({ bookId: book._id, userId: req.user.id });
       canReview = !userReview;
+    }
+
+    if (req.user?.id) {
+      const like = await Like.findOne({
+        userId: new mongoose.Types.ObjectId(req.user.id),
+        bookId: book._id
+      });
+      isLiked = !!like;
     }
 
     const response = {
@@ -459,6 +498,7 @@ exports.getBookByIdForReader = async (req, res) => {
       coverUrl,
       authorProfile,
       isOwned,
+      isLiked,
       averageRating: reviewStats.averageRating,
       reviewCount: reviewStats.reviewCount,
       canReview,
@@ -479,6 +519,19 @@ exports.getBookByIdForReader = async (req, res) => {
       } catch (err) {
         console.error("Error generating EPUB URL:", err);
       }
+
+      // Add reading progress if available
+      if (req.user?.id) {
+        const user = await User.findById(req.user.id).select("readingProgress");
+        const progressRec = user?.readingProgress?.find(p => p.bookId.toString() === book._id.toString());
+        if (progressRec) {
+          response.readingProgress = {
+            cfi: progressRec.cfi,
+            percentage: progressRec.percentage,
+            timestamp: progressRec.timestamp
+          };
+        }
+      }
     }
 
     res.json(response);
@@ -488,6 +541,43 @@ exports.getBookByIdForReader = async (req, res) => {
       message: "Something went wrong while fetching the book.",
       error: error.message,
     });
+  }
+};
+
+exports.saveReadingProgress = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { cfi, percentage } = req.body;
+    const userId = req.user.id;
+
+    if (!cfi) return res.status(400).json({ message: "CFI location is required" });
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    // Check if progress for this book already exists
+    const existingIndex = user.readingProgress.findIndex(p => p.bookId.toString() === id);
+
+    if (existingIndex > -1) {
+      // Update existing
+      user.readingProgress[existingIndex].cfi = cfi;
+      user.readingProgress[existingIndex].percentage = percentage;
+      user.readingProgress[existingIndex].timestamp = new Date();
+    } else {
+      // Add new
+      user.readingProgress.push({
+        bookId: id,
+        cfi,
+        percentage,
+        timestamp: new Date()
+      });
+    }
+
+    await user.save();
+    res.json({ message: "Progress saved" });
+  } catch (error) {
+    console.error("Save reading progress error:", error);
+    res.status(500).json({ message: "Failed to save reading progress" });
   }
 };
 
