@@ -92,6 +92,42 @@ exports.deleteUser = async (req, res) => {
     }
 };
 
+exports.toggleUserStatus = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status } = req.body;
+
+        if (!["active", "suspended"].includes(status)) {
+            return res.status(400).json({ message: "Invalid status. Use 'active' or 'suspended'." });
+        }
+
+        const user = await User.findById(id);
+        if (!user) return res.status(404).json({ message: "User not found" });
+
+        if (user.role === "admin") {
+            return res.status(403).json({ message: "Cannot modify status of admin users" });
+        }
+
+        user.status = status;
+        await user.save();
+
+        // Log audit
+        await AuditLog.create({
+            adminId: req.user.id,
+            action: status === "suspended" ? "SUSPEND_USER" : "ACTIVATE_USER",
+            targetType: "User",
+            targetId: id,
+            targetName: user.name,
+            details: `${status === "suspended" ? "Suspended" : "Activated"} user with email: ${user.email}`
+        });
+
+        res.json({ message: `User ${status === "suspended" ? "suspended" : "activated"} successfully`, status: user.status });
+    } catch (error) {
+        console.error("toggleUserStatus error:", error);
+        res.status(500).json({ message: "Failed to update user status" });
+    }
+};
+
 exports.getAllBooks = async (req, res) => {
     try {
         const page = parseInt(req.query.page) || 1;
@@ -99,18 +135,33 @@ exports.getAllBooks = async (req, res) => {
         const skip = (page - 1) * limit;
 
         console.log("Admin getAllBooks Query:", { page, limit, skip });
+
+        const aggregationPipeline = [
+            {
+                $addFields: {
+                    reportCount: { $size: { $ifNull: ["$reports", []] } }
+                }
+            },
+            { $sort: { reportCount: -1, createdAt: -1 } },
+            { $skip: skip },
+            { $limit: limit }
+        ];
+
         const [books, total] = await Promise.all([
-            Book.find()
-                .populate("createdBy", "name email")
-                .skip(skip)
-                .limit(limit)
-                .sort({ createdAt: -1 }),
+            Book.aggregate(aggregationPipeline),
             Book.countDocuments(),
         ]);
-        console.log("Admin getAllBooks found:", books.length, "Total:", total);
+
+        // Manually populate createdBy since aggregate doesn't support it directly
+        const populatedBooks = await Book.populate(books, {
+            path: "createdBy",
+            select: "name email"
+        });
+
+        console.log("Admin getAllBooks found:", populatedBooks.length, "Total:", total);
 
         res.json({
-            data: books,
+            data: populatedBooks,
             pagination: {
                 total,
                 page,

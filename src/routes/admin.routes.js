@@ -8,6 +8,7 @@ router.use(auth, role(["admin"]));
 
 router.get("/dashboard-stats", adminController.getDashboardStats);
 router.get("/users", adminController.getAllUsers);
+router.put("/users/:id/status", adminController.toggleUserStatus);
 router.delete("/users/:id", adminController.deleteUser);
 router.get("/books", adminController.getAllBooks);
 router.delete("/books/:id", adminController.deleteBook);
