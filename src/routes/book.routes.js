@@ -18,6 +18,7 @@ router.get("/my", auth, role(["author"]), book.getMyBooks);
 router.get('/mybooks', auth, book.getAuthorBooks);
 router.get("/library", auth, role(["reader"]), book.getMyLibrary);
 router.get("/:id/reader", auth, role(["reader"]), book.getBookByIdForReader);
+router.put("/:id/progress", auth, role(["reader"]), book.saveReadingProgress);
 router.get("/:id", optionalAuth, book.getBookById);
 router.put("/:id", auth, book.updateBook);
 router.post("/:id/report", auth, book.reportBook);

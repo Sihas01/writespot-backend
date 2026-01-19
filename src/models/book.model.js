@@ -21,6 +21,7 @@ const bookSchema = new mongoose.Schema({
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     createdAt: { type: Date, default: Date.now },
     drmEnabled: { type: Boolean, default: false },
+    likesCount: { type: Number, default: 0 },
     reports: [{
         userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
         reason: String,
