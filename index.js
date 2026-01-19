@@ -8,6 +8,7 @@ app.use(cors());
 app.use(express.json());
 
 app.use('/api/auth', require('./src/routes/auth.routes'));
+app.use('/auth', require('./src/routes/auth.routes'));
 app.use("/api/author", require("./src/routes/author.routes"));
 app.use("/api/authors", require("./src/routes/author.routes"));
 

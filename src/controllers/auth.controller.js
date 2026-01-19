@@ -192,6 +192,7 @@ module.exports = {
     try {
       const { preferredGenres } = req.body;
       const userId = req.user.id;
+      console.log(`DEBUG: Updating preferences for user: ${userId}`, preferredGenres);
 
       const user = await User.findById(userId);
       if (!user) return res.status(404).json({ msg: "User not found" });
