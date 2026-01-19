@@ -144,6 +144,10 @@ module.exports = {
         return res.status(400).json({ msg: "Please verify your email first" });
       }
 
+      if (user.status === "suspended") {
+        return res.status(403).json({ msg: "Your account has been suspended by an admin" });
+      }
+
       const isPasswordCorrect = await bcrypt.compare(password, user.password);
 
       if (!isPasswordCorrect) {

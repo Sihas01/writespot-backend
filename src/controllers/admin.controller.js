@@ -92,6 +92,42 @@ exports.deleteUser = async (req, res) => {
     }
 };
 
+exports.toggleUserStatus = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status } = req.body;
+
+        if (!["active", "suspended"].includes(status)) {
+            return res.status(400).json({ message: "Invalid status. Use 'active' or 'suspended'." });
+        }
+
+        const user = await User.findById(id);
+        if (!user) return res.status(404).json({ message: "User not found" });
+
+        if (user.role === "admin") {
+            return res.status(403).json({ message: "Cannot modify status of admin users" });
+        }
+
+        user.status = status;
+        await user.save();
+
+        // Log audit
+        await AuditLog.create({
+            adminId: req.user.id,
+            action: status === "suspended" ? "SUSPEND_USER" : "ACTIVATE_USER",
+            targetType: "User",
+            targetId: id,
+            targetName: user.name,
+            details: `${status === "suspended" ? "Suspended" : "Activated"} user with email: ${user.email}`
+        });
+
+        res.json({ message: `User ${status === "suspended" ? "suspended" : "activated"} successfully`, status: user.status });
+    } catch (error) {
+        console.error("toggleUserStatus error:", error);
+        res.status(500).json({ message: "Failed to update user status" });
+    }
+};
+
 exports.getAllBooks = async (req, res) => {
     try {
         const page = parseInt(req.query.page) || 1;
