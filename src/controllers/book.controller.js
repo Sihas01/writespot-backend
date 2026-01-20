@@ -374,38 +374,69 @@ exports.getBookById = async (req, res) => {
   }
 };
 
-// Get books created by logged-in user
+// Helper to get book stats
+const getBookStats = async (bookId) => {
+  const [orderOwners, userOwners, reviewStats] = await Promise.all([
+    Order.distinct("user", { "items.bookId": bookId, status: "COMPLETED" }),
+    User.distinct("_id", { purchasedBooks: bookId }),
+    calculateBookRating(bookId)
+  ]);
+
+  const owners = new Set([
+    ...orderOwners.map(o => o.toString()),
+    ...userOwners.map(o => o.toString())
+  ]);
+
+  return {
+    purchasedCount: owners.size,
+    averageRating: reviewStats.averageRating,
+    reviewCount: reviewStats.reviewCount
+  };
+};
+
+// Get books created by logged-in user with statistics
 exports.getMyBooks = async (req, res) => {
   try {
     const books = await Book.find({ createdBy: req.user.id });
-    res.json(books);
+
+    const booksWithStats = await Promise.all(
+      books.map(async (book) => {
+        const stats = await getBookStats(book._id);
+        const coverUrl = await buildCoverUrl(book);
+        return {
+          ...book.toObject(),
+          ...stats,
+          coverUrl
+        };
+      })
+    );
+
+    res.json(booksWithStats);
   } catch (err) {
     console.error("Get my books error:", err);
     res.status(500).json({ message: "Something went wrong while fetching your books." });
   }
 };
 
-// Get author books with signed S3 URLs
+// Get author books with signed S3 URLs and statistics
 exports.getAuthorBooks = async (req, res) => {
   try {
     const userId = req.user.id;
     const books = await Book.find({ createdBy: userId });
 
-    const booksWithCoverUrls = await Promise.all(
+    const booksWithStats = await Promise.all(
       books.map(async (book) => {
-        let coverUrl = null;
-        if (book.coverImagePath) {
-          const command = new GetObjectCommand({
-            Bucket: BUCKET_NAME,
-            Key: book.coverImagePath,
-          });
-          coverUrl = await getSignedUrl(s3, command, { expiresIn: 300 });
-        }
-        return { ...book.toObject(), coverUrl };
+        const stats = await getBookStats(book._id);
+        const coverUrl = await buildCoverUrl(book);
+        return {
+          ...book.toObject(),
+          ...stats,
+          coverUrl
+        };
       })
     );
 
-    res.json(booksWithCoverUrls);
+    res.json(booksWithStats);
   } catch (err) {
     console.error("Get author books error:", err);
     res.status(500).json({ message: "Something went wrong while fetching author books." });
