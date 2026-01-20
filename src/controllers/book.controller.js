@@ -134,56 +134,67 @@ exports.addBook = async (req, res) => {
       .catch(err => console.error("EPUB conversion request failed:", err.message));
 
     // Send email notifications to subscribers (non-blocking)
-    (async () => {
-      try {
-        // Get author profile
-        const authorProfile = await AuthorProfile.findOne({ user: req.user.id })
-          .populate("user", "name email");
-
-        if (authorProfile) {
-          // Get all active subscribers
-          const subscriptions = await NewsletterSubscription.find({
-            authorId: authorProfile._id,
-            isActive: true,
-          }).populate("subscriberId", "name email");
-
-          if (subscriptions.length > 0) {
-            // Get book cover URL for email
-            const coverUrl = await buildCoverUrl(book);
-
-            // Format subscribers for email service
-            const subscribers = subscriptions.map((sub) => ({
-              unsubscribeToken: sub.unsubscribeToken,
-              subscriberEmail: sub.subscriberId?.email || "",
-              subscriberName: sub.subscriberId?.name || "Subscriber",
-            }));
-
-            // Prepare book object with cover URL
-            const bookWithCover = {
-              ...book.toObject(),
-              coverUrl,
-            };
-
-            // Send emails (non-blocking, errors logged but don't fail book creation)
-            sendNewBookNotification(bookWithCover, authorProfile, subscribers)
-              .then((result) => {
-                console.log(`Newsletter emails sent: ${result.sent} successful, ${result.failed} failed`);
-              })
-              .catch((err) => {
-                console.error("Error sending newsletter emails:", err);
-              });
-          }
-        }
-      } catch (err) {
-        console.error("Error preparing newsletter emails:", err);
-        // Don't fail book creation if email preparation fails
-      }
-    })();
+    notifySubscribers(book, req.user.id);
 
     res.status(201).json({ message: "Book added successfully", book });
   } catch (error) {
     console.error("Add book error:", error);
     res.status(500).json({ message: "Something went wrong while adding the book.", error: error.message });
+  }
+};
+
+// Helper: Notify newsletter subscribers about new book
+const notifySubscribers = async (book, authorUserId) => {
+  try {
+    console.log(`[Newsletter] Preparing notifications for author user: ${authorUserId}`);
+
+    // Get author profile
+    const authorProfile = await AuthorProfile.findOne({ user: authorUserId })
+      .populate("user", "name email");
+
+    if (!authorProfile) {
+      console.log(`[Newsletter] No author profile found for user ${authorUserId}. Skipping notifications.`);
+      return;
+    }
+
+    // Get all active subscribers
+    const subscriptions = await NewsletterSubscription.find({
+      authorId: authorProfile._id,
+      isActive: true,
+    }).populate("subscriberId", "name email");
+
+    if (subscriptions.length === 0) {
+      console.log(`[Newsletter] No active subscribers for author ${authorProfile._id}.`);
+      return;
+    }
+
+    // Get book cover URL for email
+    const coverUrl = await buildCoverUrl(book);
+
+    // Format subscribers for email service
+    const subscribers = subscriptions.map((sub) => ({
+      unsubscribeToken: sub.unsubscribeToken,
+      subscriberEmail: sub.subscriberId?.email || "",
+      subscriberName: sub.subscriberId?.name || "Subscriber",
+    })).filter(s => s.subscriberEmail); // Ensure we have an email
+
+    if (subscribers.length === 0) {
+      console.log(`[Newsletter] No valid subscriber emails found.`);
+      return;
+    }
+
+    // Prepare book object with cover URL
+    const bookWithCover = {
+      ...book.toObject(),
+      coverUrl,
+    };
+
+    // Send emails (errors logged within the service but don't fail this process)
+    const result = await sendNewBookNotification(bookWithCover, authorProfile, subscribers);
+    console.log(`[Newsletter] Notification process complete: ${result.sent} success, ${result.failed} failed.`);
+
+  } catch (err) {
+    console.error("[Newsletter] Error in notifySubscribers process:", err);
   }
 };
 
@@ -374,38 +385,69 @@ exports.getBookById = async (req, res) => {
   }
 };
 
-// Get books created by logged-in user
+// Helper to get book stats
+const getBookStats = async (bookId) => {
+  const [orderOwners, userOwners, reviewStats] = await Promise.all([
+    Order.distinct("user", { "items.bookId": bookId, status: "COMPLETED" }),
+    User.distinct("_id", { purchasedBooks: bookId }),
+    calculateBookRating(bookId)
+  ]);
+
+  const owners = new Set([
+    ...orderOwners.map(o => o.toString()),
+    ...userOwners.map(o => o.toString())
+  ]);
+
+  return {
+    purchasedCount: owners.size,
+    averageRating: reviewStats.averageRating,
+    reviewCount: reviewStats.reviewCount
+  };
+};
+
+// Get books created by logged-in user with statistics
 exports.getMyBooks = async (req, res) => {
   try {
     const books = await Book.find({ createdBy: req.user.id });
-    res.json(books);
+
+    const booksWithStats = await Promise.all(
+      books.map(async (book) => {
+        const stats = await getBookStats(book._id);
+        const coverUrl = await buildCoverUrl(book);
+        return {
+          ...book.toObject(),
+          ...stats,
+          coverUrl
+        };
+      })
+    );
+
+    res.json(booksWithStats);
   } catch (err) {
     console.error("Get my books error:", err);
     res.status(500).json({ message: "Something went wrong while fetching your books." });
   }
 };
 
-// Get author books with signed S3 URLs
+// Get author books with signed S3 URLs and statistics
 exports.getAuthorBooks = async (req, res) => {
   try {
     const userId = req.user.id;
     const books = await Book.find({ createdBy: userId });
 
-    const booksWithCoverUrls = await Promise.all(
+    const booksWithStats = await Promise.all(
       books.map(async (book) => {
-        let coverUrl = null;
-        if (book.coverImagePath) {
-          const command = new GetObjectCommand({
-            Bucket: BUCKET_NAME,
-            Key: book.coverImagePath,
-          });
-          coverUrl = await getSignedUrl(s3, command, { expiresIn: 300 });
-        }
-        return { ...book.toObject(), coverUrl };
+        const stats = await getBookStats(book._id);
+        const coverUrl = await buildCoverUrl(book);
+        return {
+          ...book.toObject(),
+          ...stats,
+          coverUrl
+        };
       })
     );
 
-    res.json(booksWithCoverUrls);
+    res.json(booksWithStats);
   } catch (err) {
     console.error("Get author books error:", err);
     res.status(500).json({ message: "Something went wrong while fetching author books." });

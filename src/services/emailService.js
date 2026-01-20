@@ -52,14 +52,18 @@ const sendBatchEmails = async (emailPromises, batchSize = 50, delayMs = 1000) =>
 // Send new book notification to subscribers
 const sendNewBookNotification = async (book, author, subscribers) => {
   if (!subscribers || subscribers.length === 0) {
+    console.log(`[Newsletter] No subscribers to notify for author ${author._id}`);
     return { sent: 0, failed: 0 };
   }
 
+  const frontendUrl = process.env.FRONTEND_URL || process.env.API || "http://localhost:5173";
   const authorName = author.user?.name || `${author.author?.firstName || ""} ${author.author?.lastName || ""}`.trim() || "Author";
   const bookTitle = book.title || "New Book";
   const bookDescription = book.description || "Check out this new release!";
-  const bookUrl = `${process.env.FRONTEND_URL || "http://localhost:5173"}/reader/dashboard/store/${book._id}`;
+  const bookUrl = `${frontendUrl}/reader/dashboard/store/${book._id}`;
   const coverImageUrl = book.coverUrl || "";
+
+  console.log(`[Newsletter] Sending publication notifications for "${bookTitle}" to ${subscribers.length} subscribers...`);
 
   const emailPromises = subscribers.map(async (subscription) => {
     const unsubscribeLink = generateUnsubscribeLink(subscription.unsubscribeToken);
@@ -71,46 +75,63 @@ const sendNewBookNotification = async (book, author, subscribers) => {
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
         </head>
-        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-          <div style="background: #f0fdf4; padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
-            <h1 style="color: #16a34a; font-size: 32px; margin: 0;">WriteSpot</h1>
-            <p style="color: #666; margin: 10px 0 0 0;">New Book Release</p>
-          </div>
-          
-          <div style="background: white; padding: 30px; border: 1px solid #e5e7eb; border-top: none;">
-            <h2 style="color: #1f2937; margin-top: 0;">${authorName} has published a new book!</h2>
+        <body style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #374151; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9fafb;">
+          <div style="background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); border: 1px solid #e5e7eb;">
+            <div style="background: #16a34a; padding: 40px 20px; text-align: center;">
+              <h1 style="color: white; font-size: 36px; margin: 0; font-weight: 800; letter-spacing: -0.025em;">WriteSpot</h1>
+              <p style="color: #dcfce7; margin: 10px 0 0 0; font-size: 18px; font-weight: 500;">New Release Alert</p>
+            </div>
             
-            ${coverImageUrl ? `
-              <div style="text-align: center; margin: 20px 0;">
-                <img src="${coverImageUrl}" alt="${bookTitle}" style="max-width: 200px; height: auto; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);" />
+            <div style="padding: 40px;">
+              <h2 style="color: #111827; margin-top: 0; font-size: 24px; text-align: center; line-height: 1.3;">
+                ${authorName} just published a new book!
+              </h2>
+              
+              ${coverImageUrl ? `
+                <div style="text-align: center; margin: 30px 0;">
+                  <img src="${coverImageUrl}" alt="${bookTitle}" style="max-width: 180px; height: auto; border-radius: 12px; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);" />
+                </div>
+              ` : ""}
+              
+              <div style="text-align: center; margin-bottom: 30px;">
+                <h3 style="color: #111827; font-size: 28px; margin: 0 0 8px 0; font-weight: 700;">${bookTitle}</h3>
+                ${book.subtitle ? `<p style="color: #6b7280; font-size: 16px; margin: 0;">${book.subtitle}</p>` : ""}
               </div>
-            ` : ""}
+              
+              <div style="background: #f3f4f6; border-radius: 12px; padding: 20px; margin-bottom: 30px;">
+                <p style="color: #4b5563; margin: 0; font-size: 15px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">
+                  ${bookDescription}
+                </p>
+              </div>
+              
+              <div style="text-align: center;">
+                ${book.price !== undefined && book.price !== null ? `
+                  <div style="margin-bottom: 25px;">
+                    <span style="font-size: 24px; font-weight: 700; color: #16a34a;">
+                      ${book.price > 0 ? `LKR ${book.price}` : "Available for Free"}
+                    </span>
+                  </div>
+                ` : ""}
+                
+                <a href="${bookUrl}" style="display: inline-block; background: #16a34a; color: white; padding: 16px 40px; text-decoration: none; border-radius: 9999px; font-weight: 600; font-size: 16px; transition: background-color 0.2s;">
+                  Read Now
+                </a>
+              </div>
+            </div>
             
-            <h3 style="color: #374151; font-size: 24px; margin: 20px 0 10px 0;">${bookTitle}</h3>
-            
-            ${book.subtitle ? `<p style="color: #6b7280; font-style: italic; margin: 0 0 15px 0;">${book.subtitle}</p>` : ""}
-            
-            <p style="color: #4b5563; margin: 15px 0;">${bookDescription}</p>
-            
-            ${book.price !== undefined && book.price !== null ? `
-              <p style="font-size: 20px; font-weight: bold; color: #059669; margin: 20px 0;">
-                ${book.price > 0 ? `LKR ${book.price}` : "Free"}
+            <div style="background: #f9fafb; padding: 30px; text-align: center; border-top: 1px solid #e5e7eb;">
+              <p style="color: #6b7280; font-size: 13px; margin: 0; line-height: 1.5;">
+                You are receiving this because you subscribed to <strong>${authorName}</strong> on WriteSpot.
               </p>
-            ` : ""}
-            
-            <div style="text-align: center; margin: 30px 0;">
-              <a href="${bookUrl}" style="display: inline-block; background: #16a34a; color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;">
-                View Book
-              </a>
+              <p style="color: #6b7280; font-size: 13px; margin: 15px 0 0 0;">
+                <a href="${unsubscribeLink}" style="color: #16a34a; text-decoration: none; font-weight: 500;">Unsubscribe from this newsletter</a>
+              </p>
             </div>
           </div>
           
-          <div style="background: #f9fafb; padding: 20px; text-align: center; border-radius: 0 0 10px 10px; border: 1px solid #e5e7eb; border-top: none;">
-            <p style="color: #6b7280; font-size: 12px; margin: 0;">
-              You're receiving this email because you subscribed to ${authorName}'s newsletter.
-            </p>
-            <p style="color: #6b7280; font-size: 12px; margin: 10px 0 0 0;">
-              <a href="${unsubscribeLink}" style="color: #6b7280; text-decoration: underline;">Unsubscribe</a>
+          <div style="margin-top: 20px; text-align: center;">
+            <p style="color: #9ca3af; font-size: 11px;">
+              &copy; ${new Date().getFullYear()} WriteSpot. All rights reserved.
             </p>
           </div>
         </body>
@@ -139,7 +160,7 @@ Unsubscribe: ${unsubscribeLink}
     return sendMailSafe({
       from: `"WriteSpot" <${process.env.EMAIL}>`,
       to: subscription.subscriberEmail,
-      subject: `New Book Release: ${bookTitle} by ${authorName}`,
+      subject: `New Release: ${bookTitle} by ${authorName}`,
       html: htmlContent,
       text: textContent,
     });
@@ -149,9 +170,7 @@ Unsubscribe: ${unsubscribeLink}
   const sent = results.filter((r) => r.status === "fulfilled").length;
   const failed = results.filter((r) => r.status === "rejected").length;
 
-  if (failed > 0) {
-    console.error(`Failed to send ${failed} newsletter emails`);
-  }
+  console.log(`[Newsletter] Batch complete: ${sent} sent, ${failed} failed for "${bookTitle}"`);
 
   return { sent, failed };
 };
