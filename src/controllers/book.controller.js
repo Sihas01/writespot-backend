@@ -212,6 +212,7 @@ exports.getAllBooks = async (req, res) => {
       page = 1,
       limit = 10,
       sort,
+      recommend,
     } = req.query;
 
     // DEBUG: Check auth
@@ -229,10 +230,15 @@ exports.getAllBooks = async (req, res) => {
     };
 
     const andFilters = [];
+    const nonGenreFilters = [];
     const genres = normalizeList(genre);
     const languages = normalizeList(language);
+    const isRecommend =
+      String(recommend || "").toLowerCase() === "1" ||
+      String(recommend || "").toLowerCase() === "true" ||
+      String(recommend || "").toLowerCase() === "yes";
 
-    if (genres.length) {
+    if (genres.length && !isRecommend) {
       andFilters.push({
         genre: {
           $in: genres.map(
@@ -264,12 +270,14 @@ exports.getAllBooks = async (req, res) => {
         return new RegExp(`^${escaped}([_-]|$)`, "i");
       });
 
-      andFilters.push({
+      const languageFilter = {
         $or: [
           { language: { $in: languageMatchers } },
           { languageCode: { $in: languageMatchers } },
         ],
-      });
+      };
+      andFilters.push(languageFilter);
+      nonGenreFilters.push(languageFilter);
     }
 
     const effectiveRatingMin =
@@ -280,7 +288,7 @@ exports.getAllBooks = async (req, res) => {
     if (searchTerm) {
       const escaped = escapeRegExp(searchTerm);
       const searchRegex = new RegExp(escaped, "i");
-      andFilters.push({
+      const searchFilter = {
         $or: [
         { title: searchRegex },
         { subtitle: searchRegex },
@@ -288,10 +296,15 @@ exports.getAllBooks = async (req, res) => {
         { "author.lastName": searchRegex },
         { keywords: searchRegex },
         ],
-      });
+      };
+      andFilters.push(searchFilter);
+      nonGenreFilters.push(searchFilter);
     }
 
     const filters = andFilters.length ? { $and: andFilters } : {};
+    const nonGenreFilterSpec = nonGenreFilters.length
+      ? { $and: nonGenreFilters }
+      : {};
 
     const pageNum = Math.max(Number(page) || 1, 1);
     const pageSize = Math.min(Math.max(Number(limit) || 10, 1), 50);
@@ -299,13 +312,54 @@ exports.getAllBooks = async (req, res) => {
     const sortValue = String(sort || "").trim();
     const sortSpec = sortValue === "createdAtDesc" ? { createdAt: -1 } : null;
 
-    const baseQuery = Book.find(filters);
-    if (sortSpec) {
-      baseQuery.sort(sortSpec);
+    let books = [];
+    if (isRecommend && genres.length) {
+      const perGenreSampleSize = Math.min(pageSize, 20);
+      const genreBuckets = await Promise.all(
+        genres.map(async (item) => {
+          const escaped = escapeRegExp(item);
+          const genreMatch = {
+            genre: { $in: [new RegExp(`^${escaped}$`, "i")] },
+          };
+          const match =
+            nonGenreFilters.length > 0
+              ? { $and: [nonGenreFilterSpec, genreMatch] }
+              : genreMatch;
+          return Book.aggregate([
+            { $match: match },
+            { $sample: { size: perGenreSampleSize } },
+          ]);
+        })
+      );
+
+      const seen = new Set();
+      const interleaved = [];
+      let addedAny = true;
+      while (interleaved.length < pageSize && addedAny) {
+        addedAny = false;
+        for (const bucket of genreBuckets) {
+          const next = bucket.find(
+            (book) => !seen.has(book._id?.toString())
+          );
+          if (!next) continue;
+          seen.add(next._id?.toString());
+          interleaved.push(next);
+          const index = bucket.indexOf(next);
+          if (index > -1) bucket.splice(index, 1);
+          addedAny = true;
+          if (interleaved.length >= pageSize) break;
+        }
+      }
+      books = interleaved;
+    } else {
+      const baseQuery = Book.find(filters);
+      if (sortSpec) {
+        baseQuery.sort(sortSpec);
+      }
+      books = hasRatingFilter
+        ? await baseQuery
+        : await baseQuery.skip((pageNum - 1) * pageSize).limit(pageSize);
     }
-    const books = hasRatingFilter
-      ? await baseQuery
-      : await baseQuery.skip((pageNum - 1) * pageSize).limit(pageSize);
 
     const ownedIds = req.user?.id
       ? new Set(await getOwnedBookIds(req.user.id))
@@ -321,8 +375,9 @@ exports.getAllBooks = async (req, res) => {
       books.map(async (book) => {
         const coverUrl = await buildCoverUrl(book);
         const { averageRating } = await calculateBookRating(book._id);
+        const raw = typeof book.toObject === "function" ? book.toObject() : book;
         return {
-          ...book.toObject(),
+          ...raw,
           coverUrl,
           averageRating,
           isOwned: ownedIds
