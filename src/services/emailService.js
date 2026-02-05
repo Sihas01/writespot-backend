@@ -232,10 +232,90 @@ const sendNewsletterEmail = async (author, subscribers, content) => {
   return { sent, failed };
 };
 
+const sendModerationNotice = async (email, type, reason, details = {}) => {
+  const subjects = {
+    CONTENT_DELETED: "Your content has been removed from WriteSpot",
+    ACCOUNT_SUSPENDED: "Your WriteSpot account has been suspended",
+    ACCOUNT_DELETED: "Your WriteSpot account has been removed",
+  };
+
+  const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+  const supportEmail = process.env.SUPPORT_EMAIL || process.env.EMAIL || "support@writespot.com";
+  const userName = details.userName || "there";
+  const contentType = details.contentType || "content";
+  const contentTitle = details.contentTitle || "your content";
+  const actionLine =
+    type === "ACCOUNT_SUSPENDED"
+      ? "Your account has been suspended for violating our community guidelines."
+      : type === "ACCOUNT_DELETED"
+        ? "Your account has been removed from WriteSpot for violating our community guidelines."
+        : `Your ${contentType} "${contentTitle}" has been removed from WriteSpot for violating our community guidelines.`;
+  const appealLink = `${frontendUrl}/support`;
+
+  const htmlContent = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      </head>
+      <body style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #374151; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9fafb;">
+        <div style="background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); border: 1px solid #e5e7eb;">
+          <div style="background: #111827; padding: 36px 20px; text-align: center;">
+            <h1 style="color: white; font-size: 30px; margin: 0; font-weight: 800; letter-spacing: -0.02em;">WriteSpot</h1>
+            <p style="color: #d1d5db; margin: 8px 0 0 0; font-size: 16px; font-weight: 500;">Moderation Notice</p>
+          </div>
+          
+          <div style="padding: 36px;">
+            <p style="color: #111827; font-size: 16px; margin: 0 0 16px 0;">Hello ${userName},</p>
+            <p style="margin: 0 0 16px 0;">${actionLine}</p>
+            <p style="margin: 0 0 16px 0;"><strong>Reason:</strong> ${reason}</p>
+            ${details.additionalDetails ? `<p style="margin: 0 0 16px 0;"><strong>Details:</strong> ${details.additionalDetails}</p>` : ""}
+            <p style="margin: 0 0 16px 0;">If you believe this is a mistake, please contact our support team.</p>
+            <div style="text-align: center; margin-top: 24px;">
+              <a href="${appealLink}" style="display: inline-block; background: #111827; color: white; padding: 12px 24px; text-decoration: none; border-radius: 9999px; font-weight: 600; font-size: 14px;">
+                Contact Support
+              </a>
+            </div>
+          </div>
+          
+          <div style="background: #f9fafb; padding: 20px; text-align: center; border-top: 1px solid #e5e7eb;">
+            <p style="color: #6b7280; font-size: 12px; margin: 0; line-height: 1.5;">
+              Need help? Email us at <a href="mailto:${supportEmail}" style="color: #111827; text-decoration: none; font-weight: 600;">${supportEmail}</a>
+            </p>
+          </div>
+        </div>
+      </body>
+    </html>
+  `;
+
+  const textContent = `
+WriteSpot Moderation Notice
+
+Hello ${userName},
+
+${actionLine}
+
+Reason: ${reason}
+${details.additionalDetails ? `Details: ${details.additionalDetails}\n` : ""}
+If you believe this is a mistake, please contact our support team.
+Support: ${supportEmail}
+  `.trim();
+
+  return sendMailSafe({
+    from: `"WriteSpot" <${process.env.EMAIL}>`,
+    to: email,
+    subject: subjects[type] || "WriteSpot Moderation Notice",
+    html: htmlContent,
+    text: textContent,
+  });
+};
+
 module.exports = {
   sendMailSafe,
   generateUnsubscribeLink,
   sendNewBookNotification,
   sendNewsletterEmail,
   sendBatchEmails,
+  sendModerationNotice,
 };
