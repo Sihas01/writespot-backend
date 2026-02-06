@@ -297,22 +297,8 @@ exports.reportReview = async (req, res) => {
 
     const reportCount = review.reportedBy.length;
 
-    // Check for auto-deletion threshold (10 reports)
-    if (reportCount >= 10) {
-      const bookId = review.bookId;
-      await Review.findByIdAndDelete(review._id);
-
-      // Recalculate book rating after deletion
-      const { averageRating, reviewCount } = await updateBookRating(bookId);
-
-      return res.json({
-        message: "Review automatically deleted due to high report volume",
-        deleted: true,
-        bookRating: { averageRating, reviewCount }
-      });
-    }
-
-    // Flag if threshold reached (3+ reports)
+    // Flag if threshold reached (3+ reports) - for admin review
+    // Note: Auto-deletion has been removed in favor of due process moderation
     if (reportCount >= 3) {
       review.isFlagged = true;
     }

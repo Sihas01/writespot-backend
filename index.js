@@ -23,6 +23,7 @@ app.use("/api/revenue", require("./src/routes/revenueRoutes"));
 app.use("/api", require("./src/routes/review.routes"));
 app.use("/api/newsletter", require("./src/routes/newsletter.routes"));
 app.use("/api/likes", require("./src/routes/like.routes"));
+app.use("/api/reports", require("./src/routes/report.routes"));
 
 
 mongoose.connect(process.env.MONGO_URI)
